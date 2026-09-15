@@ -3,7 +3,6 @@ import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
-import { createServer as createViteServer } from 'vite';
 import { apiRouter } from './server/routes/api.js';
 import { v1Router } from './server/routes/v1.js';
 
@@ -47,6 +46,7 @@ async function startServer() {
 
   // Development vs Production static/Vite middleware
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -65,7 +65,9 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
+if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  startServer().catch((err) => {
   console.error('[GateKeeper Server Error]', err);
-  process.exit(1);
-});
+    process.exit(1);
+  });
+}
