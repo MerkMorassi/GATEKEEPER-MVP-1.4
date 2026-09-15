@@ -62,6 +62,7 @@ interface Schema {
   webAuthnChallenges: Record<string, WebAuthnChallenge>;
   users: Record<string, UserRecord>;
   apiKeys: Record<string, ApiKeyRecord>;
+  revokedTokens?: Record<string, number>;
 }
 
 const DEFAULT_PAYMENT_CAPABILITIES: PaymentCapabilitiesConfig = {
@@ -779,6 +780,11 @@ class Database {
   }
 
   getAuthSession(token: string): AuthSession | undefined {
+    if (!token) return undefined;
+    if (this.data.revokedTokens?.[token]) {
+      return undefined;
+    }
+
     // Try stateless decoding first
     try {
       if (token && typeof token === 'string' && token.startsWith('auth_stateless_')) {
@@ -805,10 +811,15 @@ class Database {
   }
 
   deleteAuthSession(token: string): void {
+    if (!token) return;
+    if (!this.data.revokedTokens) {
+      this.data.revokedTokens = {};
+    }
+    this.data.revokedTokens[token] = Date.now();
     if (this.data.authSessions[token]) {
       delete this.data.authSessions[token];
-      this.saveData();
     }
+    this.saveData();
   }
 
   // Support Contexts
@@ -1010,6 +1021,11 @@ class Database {
   }
 
   getDeviceSession(id: string): DeviceSession | undefined {
+    if (!id) return undefined;
+    if (this.data.revokedTokens?.[id]) {
+      return undefined;
+    }
+
     // Try stateless decoding first
     try {
       if (id && typeof id === 'string' && id.startsWith('dsess_stateless_')) {
@@ -1043,10 +1059,15 @@ class Database {
   }
 
   deleteDeviceSession(id: string): void {
+    if (!id) return;
+    if (!this.data.revokedTokens) {
+      this.data.revokedTokens = {};
+    }
+    this.data.revokedTokens[id] = Date.now();
     if (this.data.deviceSessions?.[id]) {
       delete this.data.deviceSessions[id];
-      this.saveData();
     }
+    this.saveData();
   }
 
   saveWebAuthnChallenge(challenge: WebAuthnChallenge): WebAuthnChallenge {

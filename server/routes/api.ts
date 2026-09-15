@@ -71,6 +71,7 @@ function getCookieOptions(req: Request) {
     httpOnly: true,
     secure: isHttps,
     sameSite: isHttps ? ('none' as const) : ('lax' as const),
+    path: '/',
     maxAge: 24 * 60 * 60 * 1000,
   };
 }

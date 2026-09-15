@@ -9,9 +9,8 @@ import { v1Router } from './server/routes/v1.js';
 
 dotenv.config();
 
-async function startServer() {
+export function createGatekeeperApp() {
   const app = express();
-  const PORT = 3000;
 
   app.use(express.json({
     verify: (req: any, _res, buf) => {
@@ -30,6 +29,21 @@ async function startServer() {
   // API Routes
   app.use('/api', apiRouter);
   app.use('/v1', v1Router);
+
+  // Fallback for environments where /api prefix may be rewritten or stripped
+  app.use((req, res, next) => {
+    if (req.url.startsWith('/auth') || req.url.startsWith('/admin') || req.url.startsWith('/orders') || req.url.startsWith('/config')) {
+      return apiRouter(req, res, next);
+    }
+    next();
+  });
+
+  return app;
+}
+
+async function startServer() {
+  const app = createGatekeeperApp();
+  const PORT = 3000;
 
   // Development vs Production static/Vite middleware
   if (process.env.NODE_ENV !== 'production') {

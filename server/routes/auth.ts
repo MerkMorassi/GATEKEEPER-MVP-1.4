@@ -55,7 +55,20 @@ export function requireDeviceAuth(req: Request, res: Response, next: NextFunctio
     return res.status(401).json({ success: false, error: 'Device authentication required.' });
   }
 
-  const session = db.getDeviceSession(sessionId);
+  let session = db.getDeviceSession(sessionId);
+  if (!session) {
+    const authSess = db.getAuthSession(sessionId);
+    if (authSess && (authSess.role === 'admin' || authSess.role === 'provider')) {
+      session = {
+        id: sessionId,
+        userId: (authSess as any).userId || `user_${authSess.role}`,
+        credentialId: 'stateless_auth_token',
+        createdAt: authSess.createdAt,
+        expiresAt: authSess.expiresAt,
+      };
+    }
+  }
+
   if (!session) {
     return res.status(401).json({ success: false, error: 'Invalid or expired device session.' });
   }
