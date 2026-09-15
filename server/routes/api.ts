@@ -205,24 +205,37 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
       db.saveUser(matchedUser);
     }
 
-    const token = crypto.randomBytes(32).toString('hex');
+    const sessionCreatedAt = new Date().toISOString();
+    const sessionExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    const token = db.issueAuthToken({
+      role,
+      providerId,
+      createdAt: sessionCreatedAt,
+      expiresAt: sessionExpiresAt,
+    });
     const session: AuthSession = {
       token,
       role,
       providerId,
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: sessionCreatedAt,
+      expiresAt: sessionExpiresAt,
     };
 
     db.saveAuthSession(session);
 
-    const sessionId = `dsess_${role}_${crypto.randomBytes(24).toString('hex')}`;
+    const sessionId = db.issueDeviceToken({
+      userId: matchedUser ? matchedUser.id : `user_${role}`,
+      credentialId: `cred_${role}_login`,
+      createdAt: sessionCreatedAt,
+      expiresAt: sessionExpiresAt,
+    });
     const deviceSession: DeviceSession = {
       id: sessionId,
       userId: matchedUser ? matchedUser.id : `user_${role}`,
       credentialId: `cred_${role}_login`,
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: sessionCreatedAt,
+      expiresAt: sessionExpiresAt,
     };
     db.saveDeviceSession(deviceSession);
 

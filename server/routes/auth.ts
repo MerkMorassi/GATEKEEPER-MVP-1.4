@@ -227,27 +227,42 @@ authRouter.post('/webauthn/register-verify', async (req: Request, res: Response)
 
     db.saveWebAuthnCredential(newCredential);
 
+    const sessionCreatedAt = new Date().toISOString();
+    const sessionExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const deviceExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
     // Automatically create authenticated device session upon enrollment
-    const sessionId = `dsess_${crypto.randomBytes(24).toString('hex')}`;
+    const sessionId = db.issueDeviceToken({
+      userId: consumedChallenge.userId,
+      credentialId: newCredential.id,
+      createdAt: sessionCreatedAt,
+      expiresAt: deviceExpiresAt,
+    });
     const session: DeviceSession = {
       id: sessionId,
       userId: consumedChallenge.userId,
       credentialId: newCredential.id,
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days
+      createdAt: sessionCreatedAt,
+      expiresAt: deviceExpiresAt,
     };
 
     db.saveDeviceSession(session);
 
     // Create server-authoritative AuthSession for admin role
-    const authToken = `auth_webauthn_${crypto.randomBytes(24).toString('hex')}`;
+    const authToken = db.issueAuthToken({
+      userId: consumedChallenge.userId,
+      role: 'admin',
+      deviceSessionId: sessionId,
+      createdAt: sessionCreatedAt,
+      expiresAt: sessionExpiresAt,
+    } as any);
     const authSession: AuthSession = {
       token: authToken,
       userId: consumedChallenge.userId,
       role: 'admin',
       deviceSessionId: sessionId,
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: sessionCreatedAt,
+      expiresAt: sessionExpiresAt,
     } as any;
     db.saveAuthSession(authSession);
 
@@ -360,27 +375,42 @@ authRouter.post('/webauthn/auth-verify', async (req: Request, res: Response) => 
     storedCredential.lastUsedAt = new Date().toISOString();
     db.saveWebAuthnCredential(storedCredential);
 
+    const sessionCreatedAt = new Date().toISOString();
+    const sessionExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const deviceExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
     // Issue new DeviceSession
-    const sessionId = `dsess_${crypto.randomBytes(24).toString('hex')}`;
+    const sessionId = db.issueDeviceToken({
+      userId: storedCredential.userId,
+      credentialId: storedCredential.id,
+      createdAt: sessionCreatedAt,
+      expiresAt: deviceExpiresAt,
+    });
     const session: DeviceSession = {
       id: sessionId,
       userId: storedCredential.userId,
       credentialId: storedCredential.id,
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: sessionCreatedAt,
+      expiresAt: deviceExpiresAt,
     };
 
     db.saveDeviceSession(session);
 
     // Create server-authoritative AuthSession for admin role
-    const authToken = `auth_webauthn_${crypto.randomBytes(24).toString('hex')}`;
+    const authToken = db.issueAuthToken({
+      userId: storedCredential.userId,
+      role: 'admin',
+      deviceSessionId: sessionId,
+      createdAt: sessionCreatedAt,
+      expiresAt: sessionExpiresAt,
+    } as any);
     const authSession: AuthSession = {
       token: authToken,
       userId: storedCredential.userId,
       role: 'admin',
       deviceSessionId: sessionId,
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: sessionCreatedAt,
+      expiresAt: sessionExpiresAt,
     } as any;
     db.saveAuthSession(authSession);
 
@@ -461,26 +491,40 @@ authRouter.post('/dev-login', (req: Request, res: Response) => {
     });
   }
 
+  const sessionCreatedAt = new Date().toISOString();
+  const sessionExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
   // Issue server-authoritative DeviceSession
-  const sessionId = `dsess_dev_${crypto.randomBytes(24).toString('hex')}`;
+  const sessionId = db.issueDeviceToken({
+    userId: `dev_${normalizedUser}`,
+    credentialId: 'dev_auth_bridge_credential',
+    createdAt: sessionCreatedAt,
+    expiresAt: sessionExpiresAt,
+  });
   const deviceSession: DeviceSession = {
     id: sessionId,
     userId: `dev_${normalizedUser}`,
     credentialId: 'dev_auth_bridge_credential',
-    createdAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    createdAt: sessionCreatedAt,
+    expiresAt: sessionExpiresAt,
   };
   db.saveDeviceSession(deviceSession);
 
   // Issue server-authoritative AuthSession for Admin/Provider/Client API access
-  const authSessionToken = `auth_dev_${crypto.randomBytes(24).toString('hex')}`;
+  const authSessionToken = db.issueAuthToken({
+    role: devRole,
+    providerId: devRole === 'provider' ? (providerId || db.getProvider().id) : undefined,
+    deviceSessionId: sessionId,
+    createdAt: sessionCreatedAt,
+    expiresAt: sessionExpiresAt,
+  } as any);
   const authSession: AuthSession = {
     token: authSessionToken,
     role: devRole,
     providerId: devRole === 'provider' ? (providerId || db.getProvider().id) : undefined,
     deviceSessionId: sessionId,
-    createdAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    createdAt: sessionCreatedAt,
+    expiresAt: sessionExpiresAt,
   } as any;
   db.saveAuthSession(authSession);
 

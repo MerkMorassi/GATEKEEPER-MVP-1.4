@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import {
   ProviderConfig,
   StripeConfig,
@@ -569,9 +570,8 @@ class Database {
       const payload = JSON.stringify(data, null, 2);
       fs.writeFileSync(TEMP_FILE, payload, 'utf-8');
       fs.renameSync(TEMP_FILE, DATA_FILE);
-    } catch (e) {
-      console.error('Failed to write db file atomically:', e);
-      throw e;
+    } catch (e: any) {
+      console.warn('[GateKeeper DB] Warning: Failed to write database file (this is expected in read-only serverless environments like Vercel):', e.message);
     }
   }
 
@@ -742,6 +742,35 @@ class Database {
     return false;
   }
 
+  // Stateless Signature Helpers
+  issueAuthToken(session: Omit<AuthSession, 'token'>): string {
+    const payload = {
+      role: session.role,
+      providerId: session.providerId,
+      userId: (session as any).userId,
+      deviceSessionId: (session as any).deviceSessionId,
+      createdAt: session.createdAt,
+      expiresAt: session.expiresAt
+    };
+    const secret = process.env.JWT_SECRET || process.env.ADMIN_SECRET_KEY || 'gk_session_fallback_secret_key_2026';
+    const payloadStr = JSON.stringify(payload);
+    const signature = crypto.createHmac('sha256', secret).update(payloadStr).digest('hex');
+    return `auth_stateless_${Buffer.from(payloadStr).toString('base64url')}.${signature}`;
+  }
+
+  issueDeviceToken(session: Omit<DeviceSession, 'id'>): string {
+    const payload = {
+      userId: session.userId,
+      credentialId: session.credentialId,
+      createdAt: session.createdAt,
+      expiresAt: session.expiresAt
+    };
+    const secret = process.env.JWT_SECRET || process.env.ADMIN_SECRET_KEY || 'gk_session_fallback_secret_key_2026';
+    const payloadStr = JSON.stringify(payload);
+    const signature = crypto.createHmac('sha256', secret).update(payloadStr).digest('hex');
+    return `dsess_stateless_${Buffer.from(payloadStr).toString('base64url')}.${signature}`;
+  }
+
   // Auth Sessions
   saveAuthSession(session: AuthSession): AuthSession {
     this.data.authSessions[session.token] = session;
@@ -750,6 +779,28 @@ class Database {
   }
 
   getAuthSession(token: string): AuthSession | undefined {
+    // Try stateless decoding first
+    try {
+      if (token && typeof token === 'string' && token.startsWith('auth_stateless_')) {
+        const body = token.substring('auth_stateless_'.length);
+        const [payloadB64, signature] = body.split('.');
+        if (payloadB64 && signature) {
+          const payloadStr = Buffer.from(payloadB64, 'base64url').toString('utf8');
+          const secret = process.env.JWT_SECRET || process.env.ADMIN_SECRET_KEY || 'gk_session_fallback_secret_key_2026';
+          const expectedSignature = crypto.createHmac('sha256', secret).update(payloadStr).digest('hex');
+          if (signature === expectedSignature) {
+            const parsed = JSON.parse(payloadStr);
+            if (new Date(parsed.expiresAt).getTime() > Date.now()) {
+              return {
+                token,
+                ...parsed
+              };
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
     return this.data.authSessions[token];
   }
 
@@ -959,6 +1010,28 @@ class Database {
   }
 
   getDeviceSession(id: string): DeviceSession | undefined {
+    // Try stateless decoding first
+    try {
+      if (id && typeof id === 'string' && id.startsWith('dsess_stateless_')) {
+        const body = id.substring('dsess_stateless_'.length);
+        const [payloadB64, signature] = body.split('.');
+        if (payloadB64 && signature) {
+          const payloadStr = Buffer.from(payloadB64, 'base64url').toString('utf8');
+          const secret = process.env.JWT_SECRET || process.env.ADMIN_SECRET_KEY || 'gk_session_fallback_secret_key_2026';
+          const expectedSignature = crypto.createHmac('sha256', secret).update(payloadStr).digest('hex');
+          if (signature === expectedSignature) {
+            const parsed = JSON.parse(payloadStr);
+            if (new Date(parsed.expiresAt).getTime() > Date.now()) {
+              return {
+                id,
+                ...parsed
+              };
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
     const session = this.data.deviceSessions?.[id];
     if (!session) return undefined;
     if (new Date(session.expiresAt).getTime() < Date.now()) {
