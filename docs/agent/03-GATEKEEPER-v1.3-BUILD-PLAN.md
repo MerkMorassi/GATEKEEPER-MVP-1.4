@@ -1,7 +1,12 @@
 # GATEKEEPER v1.3
 # BUILD PLAN
 
-**Status:** Executable MVP Build Plan  
+**Status:** Historical Record / Executable MVP Build Plan (v1.3)  
+**Migration Note:** Build requirements regarding PayPal removal and Stripe/Talentir finalization are superseded by the **v1.4 Financial Architecture**.
+**Canonical v1.4 Reference:** See `docs/agent/FINANCIAL_ARCHITECTURE.md`.
+
+---
+
 **Version:** 1.3  
 **Primary Ethos:** LEANSTACK
 

@@ -1,12 +1,17 @@
 # GATEKEEPER v1.3
 # ARCHITECTURE
 
-**Status:** Normative Product Architecture  
+**Status:** Historical / Versioned Architecture (v1.3)  
+**Migration Note:** This document is superseded by the **v1.4 Financial Architecture** regarding payment and payout rails.
+**Canonical v1.4 Reference:** See `docs/agent/FINANCIAL_ARCHITECTURE.md` for current v1.4 specifications.
+
+---
+
 **Version:** 1.3  
 **Product:** GateKeeper  
 **Primary Product-Development Ethos:** LEANSTACK  
-**Primary Payment Rail:** Stripe  
-**Provider Payout Boundary:** Talentir
+**Historical v1.3 Payment Rail:** Stripe  
+**Historical v1.3 Payout Boundary:** Talentir
 
 ---
 

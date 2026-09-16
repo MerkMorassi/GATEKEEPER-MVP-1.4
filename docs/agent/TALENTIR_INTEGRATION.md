@@ -1,8 +1,10 @@
-# Talentir Payout Adapter Integration Guide — GateKeeper Phase 6B
+# Talentir Payout Adapter Integration Guide — GateKeeper v1.4
 
 ## 1. Architectural Role
 
 Talentir serves exclusively as the **Payout Provider / Disbursement Rail** for GateKeeper. Talentir is **NOT** the customer-facing payment processor, merchant-of-record, or customer checkout system.
+
+**Version: 1.4 — Canonical Release Candidate**
 
 ```text
 CUSTOMER
@@ -115,7 +117,7 @@ Webhooks are posted to `POST /api/webhooks/payouts/talentir`.
 
 GateKeeper does **NOT** capture, process, or store:
 - Recipient bank account numbers
-- PayPal credentials
+- PayPal credentials (PayPal is an unsupported payout method)
 - Crypto wallet addresses
 - Tax forms (W-9 / W-8BEN)
 - Payout passwords or credentials
