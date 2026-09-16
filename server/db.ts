@@ -967,15 +967,12 @@ class Database {
   }
 
   togglePayoutProviderCapability(id: string, enabled: boolean): PaymentCapabilitiesConfig {
-    if (id === 'talentir' && enabled) {
-      throw new Error('TALENTIR_FEATURE_BOUNDARY: Talentir creator share engine is COMING SOON and cannot be enabled in this release.');
-    }
     if (this.data.paymentCapabilities.payoutProviders[id]) {
       const current = this.data.paymentCapabilities.payoutProviders[id];
       this.data.paymentCapabilities.payoutProviders[id] = {
         ...current,
         enabled,
-        status: enabled ? 'operational' : (current.id === 'talentir' ? 'coming_soon' : 'disabled'),
+        status: enabled ? 'operational' : 'disabled',
         updatedAt: new Date().toISOString(),
       };
       this.data.paymentCapabilities.updatedAt = new Date().toISOString();

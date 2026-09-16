@@ -83,7 +83,6 @@ export interface ProviderConfig {
   username?: string;
   email: string;
   payoutEmail: string;
-  paypalMeHandle?: string;
   facetimeHandle: string;
   active: boolean;
   services: ServiceDefinition[];
@@ -105,10 +104,10 @@ export interface ProviderConfig {
 export type CapabilityStatus = 'available' | 'enabled' | 'configured' | 'operational' | 'disabled' | 'coming_soon';
 
 export interface PaymentMethodCapability {
-  id: 'card' | 'apple_pay' | 'google_pay' | 'link' | 'cash_app' | 'paypal' | string;
+  id: 'card' | 'apple_pay' | 'google_pay' | 'link' | 'cash_app' | string;
   name: string;
   category: 'card' | 'digital_wallet' | 'bnpl' | 'instant_transfer';
-  provider: 'STRIPE' | 'PAYPAL';
+  provider: 'STRIPE';
   enabled: boolean;          // Admin toggle
   configured: boolean;       // Underlying credentials present
   operational: boolean;      // Ready for active routing
@@ -118,7 +117,7 @@ export interface PaymentMethodCapability {
 }
 
 export interface PayoutProviderCapability {
-  id: 'stripe_connect' | 'talentir' | 'paypal_payouts' | string;
+  id: 'stripe_connect' | 'talentir' | string;
   name: string;
   type: 'DIRECT_CONNECT' | 'REVENUE_SHARE' | 'API_PAYOUT';
   status: CapabilityStatus;
@@ -260,14 +259,16 @@ export interface Order {
   platformTotalShareCents: number;
 
   // Payment Execution & Stripe References
-  payoutAdapter?: 'STRIPE' | 'TALENTIR' | 'PAYPAL';
+  payoutAdapter?: 'STRIPE' | 'TALENTIR';
   stripeAccountId?: string;
   stripePaymentIntentId?: string;
   stripeCheckoutSessionId?: string;
   stripeTransferId?: string;
   stripeApplicationFeeId?: string;
 
+  /** @deprecated Legacy database schema field name retained for compatibility. Does NOT represent an active PayPal integration. */
   paypalOrderId?: string;
+  /** @deprecated Legacy database schema field name retained for compatibility. Does NOT represent an active PayPal integration. */
   paypalCaptureId?: string;
   durationMinutes?: number;
   scheduledTimeSlot?: string;
@@ -282,7 +283,7 @@ export interface FinancialLedgerEntry {
   id: string; // 'ledg_...'
   orderId: string;
   providerId: string;
-  adapterType: 'STRIPE' | 'TALENTIR' | 'PAYPAL';
+  adapterType: 'STRIPE' | 'TALENTIR';
   eventType:
     | 'CHARGE_CREATED'
     | 'CHARGE_CAPTURED'
@@ -315,7 +316,9 @@ export interface FinancialLedgerEntry {
 
 export interface PaymentRecord {
   orderId: string;
+  /** @deprecated Legacy database schema field name retained for compatibility. Does NOT represent an active PayPal integration. */
   paypalOrderId: string;
+  /** @deprecated Legacy database schema field name retained for compatibility. Does NOT represent an active PayPal integration. */
   paypalCaptureId?: string;
   payerEmail?: string;
   payerName?: string;
@@ -357,11 +360,10 @@ export interface Payout {
   amountCents: number;
   currency: string;
   status: PayoutStatus;
-  provider?: string; // e.g. 'talentir' | 'paypal_sandbox'
+  provider?: string; // e.g. 'talentir'
   providerPayoutId?: string;
   customId?: string; // Authoritative payout ID used for idempotency
   providerFeeCents?: number;
-  paypalBatchId?: string;
   timestamp: string;
   createdAt?: string;
   updatedAt?: string;

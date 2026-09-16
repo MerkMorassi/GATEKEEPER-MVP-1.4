@@ -552,7 +552,7 @@ export const AgentAudit: React.FC = () => {
                         {p.status}
                       </span>
                     </td>
-                    <td className="py-3 text-surface-a40 text-[11px]">{p.paypalBatchId || 'N/A'}</td>
+                    <td className="py-3 text-surface-a40 text-[11px]">{p.payoutId || 'N/A'}</td>
                   </tr>
                 ))}
               </tbody>

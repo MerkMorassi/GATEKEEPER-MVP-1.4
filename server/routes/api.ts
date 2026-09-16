@@ -637,10 +637,11 @@ apiRouter.post('/orders/create', async (req: Request, res: Response) => {
 // 3. Verify Payment & Execute 85/15 Settlement + Provider Payout + Entitlement QR Generation
 apiRouter.post('/payments/verify', async (req: Request, res: Response) => {
   try {
-    const { orderId, paypalOrderId } = req.body;
+    const { orderId, stripeSessionId } = req.body;
+    const externalPaymentId = stripeSessionId;
 
-    if (!orderId || !paypalOrderId) {
-      return res.status(400).json({ success: false, error: 'Missing orderId or paypalOrderId' });
+    if (!orderId || !externalPaymentId) {
+      return res.status(400).json({ success: false, error: 'Missing orderId or payment identification' });
     }
 
     // G5: Acquire process-level lock by orderId to prevent concurrent payment verification race conditions
@@ -671,7 +672,7 @@ apiRouter.post('/payments/verify', async (req: Request, res: Response) => {
         
         const paymentRecord: PaymentRecord = {
           orderId,
-          paypalOrderId: paypalOrderId || 'FREE_TRIAL_PASS',
+          paypalOrderId: externalPaymentId || 'FREE_TRIAL_PASS',
           paypalCaptureId: `FREE_CAP_${Date.now()}`,
           payerEmail: 'complimentary@gatekeeper.local',
           payerName: 'Complimentary Guest',
@@ -742,10 +743,9 @@ apiRouter.post('/payments/verify', async (req: Request, res: Response) => {
         });
       }
 
-      // Paid orders are rejected because PayPal is disabled in v1.3
       return res.status(400).json({
         success: false,
-        error: 'PayPal Express Checkout is no longer supported in GateKeeper v1.3. Please use Stripe.',
+        error: 'Payment verification pending. Please wait for Stripe confirmation.',
       });
     });
   } catch (err: any) {
@@ -1034,7 +1034,6 @@ apiRouter.post('/provider/config', requireProviderAuth, (req: Request, res: Resp
     const {
       name,
       payoutEmail,
-      paypalMeHandle,
       facetimeHandle,
       active,
       services,
@@ -1064,7 +1063,6 @@ apiRouter.post('/provider/config', requireProviderAuth, (req: Request, res: Resp
     const updated = db.updateProvider({
       ...(name !== undefined && { name }),
       ...(payoutEmail !== undefined && { payoutEmail }),
-      ...(paypalMeHandle !== undefined && { paypalMeHandle }),
       ...(facetimeHandle !== undefined && { facetimeHandle }),
       ...(active !== undefined && { active: Boolean(active) }),
       ...(services !== undefined && { services }),
@@ -1724,13 +1722,6 @@ apiRouter.put('/admin/capabilities/payout/:id', requireAdminAuth, async (req: Re
       return res.status(400).json({ success: false, error: 'Request body must contain boolean "enabled" property.' });
     }
 
-    if (payoutId === 'talentir' && enabled) {
-      return res.status(400).json({
-        success: false,
-        error: 'TALENTIR_FEATURE_BOUNDARY: Talentir creator share engine is COMING SOON and cannot be enabled in this release.',
-      });
-    }
-
     const updated = db.togglePayoutProviderCapability(payoutId, enabled);
     return res.json({ success: true, capabilities: updated });
   } catch (err: any) {
@@ -1800,15 +1791,7 @@ apiRouter.put('/admin/providers/:id', requireAdminAuth, async (req: Request, res
       return res.status(404).json({ success: false, error: 'Provider record not found.' });
     }
 
-    // Talentir hard boundary enforcement
-    if (req.body.payoutProvider === 'talentir' || req.body.enableTalentir === true) {
-      return res.status(400).json({
-        success: false,
-        error: 'TALENTIR_FEATURE_BOUNDARY: Talentir creator share engine is COMING SOON and cannot be enabled in this release.',
-      });
-    }
-
-    const { name, email, payoutEmail, paypalMeHandle, facetimeHandle, active, payoutsEnabled, acceptedPaymentMethods, services, avatarUrl, photoUrl, title, bio, website, location, phone, socials } = req.body;
+    const { name, email, payoutEmail, facetimeHandle, active, payoutsEnabled, acceptedPaymentMethods, services, avatarUrl, photoUrl, title, bio, website, location, phone, socials } = req.body;
 
     // Capability Intersection Validation: Provider cannot enable platform-disabled methods
     if (acceptedPaymentMethods && Array.isArray(acceptedPaymentMethods)) {
@@ -1828,7 +1811,6 @@ apiRouter.put('/admin/providers/:id', requireAdminAuth, async (req: Request, res
       ...(name && { name }),
       ...(email && { email }),
       ...(payoutEmail && { payoutEmail }),
-      ...(paypalMeHandle !== undefined && { paypalMeHandle }),
       ...(facetimeHandle !== undefined && { facetimeHandle }),
       ...(active !== undefined && { active: Boolean(active) }),
       ...(payoutsEnabled !== undefined && { payoutsEnabled: Boolean(payoutsEnabled) }),

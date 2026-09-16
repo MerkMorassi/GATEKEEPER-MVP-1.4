@@ -70,7 +70,7 @@ export const ClientSalesPage: React.FC<ClientSalesPageProps> = ({ onNavigateToCh
   const [clientEmail, setClientEmail] = useState('client@example.com');
 
   // Appointment Scheduling & Mode State
-  const [bookingMode, setBookingMode] = useState<'instant_paypal' | 'scheduled'>('instant_paypal');
+  const [bookingMode, setBookingMode] = useState<'instant_checkout' | 'scheduled'>('instant_checkout');
   const [clientTimezone, setClientTimezone] = useState<string>('UTC');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>('02:00 PM');
@@ -202,7 +202,7 @@ export const ClientSalesPage: React.FC<ClientSalesPageProps> = ({ onNavigateToCh
     }
   };
 
-  // Create Order & Prepare PayPal Checkout / Bypass for Free Trial
+  // Create Order & Prepare Stripe Checkout / Bypass for Free Trial
   const handleInitiateBooking = async () => {
     if (!selectedService) {
       setError('Please select a consultation service tier.');
@@ -299,7 +299,7 @@ export const ClientSalesPage: React.FC<ClientSalesPageProps> = ({ onNavigateToCh
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId,
-          paypalOrderId: 'FREE_TRIAL_PASS'
+          stripeSessionId: 'FREE_TRIAL_PASS'
         })
       });
 
@@ -1010,16 +1010,16 @@ export const ClientSalesPage: React.FC<ClientSalesPageProps> = ({ onNavigateToCh
             </div>
           )}
 
-          {/* STEP A: SCHEDULER & PAYPAL PROCESSOR CONTROLS */}
+          {/* STEP A: SCHEDULER & STRIPE PROCESSOR CONTROLS */}
           {checkoutStep !== 'completed' && (
             <div className="space-y-6">
               {/* Booking Mode Selector Pills */}
               <div className="bg-surface-a0 p-1.5 rounded-2xl border border-surface-a10 flex items-center gap-2 font-mono text-xs">
                 <button
                   type="button"
-                  onClick={() => setBookingMode('instant_paypal')}
+                  onClick={() => setBookingMode('instant_checkout')}
                   className={`flex-1 py-2.5 px-3 rounded-xl font-bold transition-all flex items-center justify-center space-x-2 ${
-                    bookingMode === 'instant_paypal'
+                    bookingMode === 'instant_checkout'
                       ? 'bg-info-a0 text-primary-a0 shadow-md'
                       : 'text-surface-a40 hover:text-theme-light'
                   }`}

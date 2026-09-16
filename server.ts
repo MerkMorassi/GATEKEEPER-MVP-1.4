@@ -65,9 +65,12 @@ async function startServer() {
   });
 }
 
-if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+// Only auto-start listener when run directly, not when imported in serverless/Vercel environments
+const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT || process.env.NOW_REGION);
+
+if (!isServerless && (process.argv[1]?.includes('server') || process.env.NODE_ENV !== 'production')) {
   startServer().catch((err) => {
-  console.error('[GateKeeper Server Error]', err);
+    console.error('[GateKeeper Server Error]', err);
     process.exit(1);
   });
 }

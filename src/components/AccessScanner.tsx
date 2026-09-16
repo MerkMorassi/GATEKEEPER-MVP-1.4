@@ -80,7 +80,7 @@ export const AccessScanner: React.FC = () => {
   // Checkout State (Direct Path to Checkout)
   const [clientName, setClientName] = useState('Client Guest');
   const [clientEmail, setClientEmail] = useState('client@example.com');
-  const [checkoutStep, setCheckoutStep] = useState<'verified_summary' | 'paypal_modal' | 'verifying_payment' | 'session_flow'>('verified_summary');
+  const [checkoutStep, setCheckoutStep] = useState<'verified_summary' | 'stripe_checkout_modal' | 'verifying_payment' | 'session_flow'>('verified_summary');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [entitlement, setEntitlement] = useState<Entitlement | null>(null);
@@ -401,7 +401,7 @@ export const AccessScanner: React.FC = () => {
       const data = await res.json();
       if (data.success && data.order) {
         setCurrentOrder(data.order);
-        setCheckoutStep('paypal_modal');
+        setCheckoutStep('stripe_checkout_modal');
       } else {
         setValidationError(data.error || 'Failed to initiate checkout order.');
       }
@@ -413,10 +413,10 @@ export const AccessScanner: React.FC = () => {
   };
 
   // Confirm Payment for Sandbox Pass and proceed to Session Flow
-  const handleConfirmPayPalPayment = async (simulatedPaypalId?: string) => {
+  const handleConfirmStripeTrial = async (simulatedPaymentId?: string) => {
     if (!currentOrder) return;
 
-    if (currentOrder.amountCents > 0 || simulatedPaypalId !== 'FREE_TRIAL_PASS') {
+    if (currentOrder.amountCents > 0 || simulatedPaymentId !== 'FREE_TRIAL_PASS') {
       setValidationError('Simulated direct verification of paid orders is disabled. Paid transactions must be completed via Stripe Checkout.');
       setCheckoutStep('verified_summary');
       return;
@@ -431,7 +431,7 @@ export const AccessScanner: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId: currentOrder.id,
-          paypalOrderId: 'FREE_TRIAL_PASS'
+          stripeSessionId: 'FREE_TRIAL_PASS'
         })
       });
 
@@ -449,7 +449,7 @@ export const AccessScanner: React.FC = () => {
 
         setCheckoutStep('session_flow');
       } else {
-        setValidationError(data.error || 'PayPal payment verification failed server-side.');
+        setValidationError(data.error || 'Trial payment verification failed server-side.');
         setCheckoutStep('verified_summary');
       }
     } catch (err: any) {
@@ -1122,7 +1122,7 @@ export const AccessScanner: React.FC = () => {
         {/* ========================================================================= */}
         {/* STRIPE MODAL SIMULATION / VERIFICATION */}
         {/* ========================================================================= */}
-        {checkoutStep === 'paypal_modal' && currentOrder && (
+        {checkoutStep === 'stripe_checkout_modal' && currentOrder && (
           <div className="bg-tonal-a0 border border-surface-a10 rounded-2xl p-6 sm:p-8 text-center space-y-6">
             <div className="w-12 h-12 bg-info-a0/10 border border-info-a0/20 rounded-2xl flex items-center justify-center text-info-a0 mx-auto">
               <DollarSign className="w-6 h-6" />
@@ -1130,7 +1130,7 @@ export const AccessScanner: React.FC = () => {
 
             <div>
               <span className="text-[10px] font-mono uppercase tracking-widest text-info-a0 font-bold bg-info-a0/10 px-2.5 py-1 rounded-md border border-info-a0/20">
-                Stripe Sandbox Window
+                Stripe Checkout Simulation
               </span>
               <h2 className="text-xl font-bold text-theme-light mt-2">Authorize Payment via Stripe</h2>
               <p className="text-xs text-surface-a40 mt-1 max-w-md mx-auto">
@@ -1156,7 +1156,7 @@ export const AccessScanner: React.FC = () => {
               </div>
             ) : (
               <button
-                onClick={() => handleConfirmPayPalPayment('FREE_TRIAL_PASS')}
+                onClick={() => handleConfirmStripeTrial('FREE_TRIAL_PASS')}
                 className="w-full max-w-md py-4 bg-success-a0 hover:bg-success-a10 text-primary-a0 font-bold rounded-xl shadow-xl transition-all flex items-center justify-center space-x-2 mx-auto"
               >
                 <Check className="w-5 h-5" />

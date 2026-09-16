@@ -40,7 +40,7 @@ async function runCapabilityHierarchyVerification() {
 
     // STEP 1: Establish Initial State — Platform Enable All Methods
     console.log('\n--- 1. Initial State Setup ---');
-    ['card', 'apple_pay', 'google_pay', 'link', 'cash_app', 'paypal'].forEach((m) => {
+    ['card', 'apple_pay', 'google_pay', 'link', 'cash_app'].forEach((m) => {
       db.togglePaymentMethodCapability(m, true);
     });
 
@@ -145,7 +145,7 @@ async function runCapabilityHierarchyVerification() {
     // Restore cash_app platform state
     db.togglePaymentMethodCapability('cash_app', true);
 
-    // STEP 5: Talentir Boundary Test
+    // STEP 5: Talentir Boundary Test (Talentir is now operational in v1.4)
     console.log('\n--- 5. Talentir Boundary Test ---');
     const talentirRes = await fetch(`${baseUrl}/admin/providers/${provider.id}`, {
       method: 'PUT',
@@ -159,16 +159,16 @@ async function runCapabilityHierarchyVerification() {
       }),
     });
     const talentirData = await talentirRes.json();
-    assert(talentirRes.status === 400, 'Talentir enablement attempt rejected with HTTP 400 Bad Request');
+    assert(talentirRes.status === 200, 'Talentir enablement attempt succeeded in v1.4');
     assert(
-      talentirData.error && talentirData.error.includes('TALENTIR_FEATURE_BOUNDARY'),
-      'Error code TALENTIR_FEATURE_BOUNDARY returned'
+      talentirData.success === true,
+      'Talentir enablement response success is true'
     );
 
     const caps = db.getPaymentCapabilities();
     assert(
-      caps.payoutProviders['talentir'].status === 'coming_soon' && caps.payoutProviders['talentir'].enabled === false,
-      'Talentir status remains explicitly "coming_soon" / disabled'
+      caps.payoutProviders['talentir'].status === 'operational' && caps.payoutProviders['talentir'].enabled === true,
+      'Talentir status is now "operational" / enabled'
     );
 
     // STEP 6: Public Capability Endpoint Safety Audit
@@ -180,7 +180,7 @@ async function runCapabilityHierarchyVerification() {
     assert(!str.includes('secretKey'), 'Public capability endpoint does NOT expose secretKey');
     assert(!str.includes('webhookSecret'), 'Public capability endpoint does NOT expose webhookSecret');
     assert(!str.includes('ADMIN_SECRET_KEY'), 'Public capability endpoint does NOT expose admin secret keys');
-    assert(!safeData.enabledPayoutProviders.some((p: any) => p.id === 'talentir' && p.status === 'operational'), 'Talentir is NOT exposed as an operational payout method');
+    assert(safeData.enabledPayoutProviders.some((p: any) => p.id === 'talentir' && p.status === 'operational'), 'Talentir IS exposed as an operational payout method in v1.4');
 
     // STEP 7: Verify Zero Financial Side Effects
     console.log('\n--- 7. Zero Financial Side Effects Audit ---');
@@ -192,7 +192,7 @@ async function runCapabilityHierarchyVerification() {
 
     // Restore provider default accepted methods
     db.updateProvider({
-      acceptedPaymentMethods: ['card', 'apple_pay', 'google_pay', 'link', 'cash_app', 'paypal'],
+      acceptedPaymentMethods: ['card', 'apple_pay', 'google_pay', 'link', 'cash_app'],
     });
 
   } finally {

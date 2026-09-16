@@ -181,7 +181,7 @@ export const FlashPortal: React.FC<FlashPortalProps> = ({ currentRole, onNavigat
                 </span>
               </div>
               <p className="text-xs text-surface-a40 leading-relaxed">
-                Direct double-blind paywalled consultation checkout, PayPal sandbox payment, and QR entitlement redemption.
+                Direct double-blind paywalled consultation checkout, Stripe secure payment, and QR entitlement redemption.
               </p>
               <div className="pt-2 flex items-center text-xs font-semibold text-info-a0 group-hover:translate-x-1 transition-transform">
                 <span>Enter Client Checkout</span>

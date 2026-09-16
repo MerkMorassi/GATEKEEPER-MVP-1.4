@@ -211,7 +211,7 @@ async function runMVPVerificationSuite() {
       const verifyRes = await fetch(`${baseUrl}/payments/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, paypalOrderId: 'FREE_TRIAL_PASS' }),
+        body: JSON.stringify({ orderId, stripeSessionId: 'FREE_TRIAL_PASS' }),
       });
 
       assert.strictEqual(verifyRes.status, 200, 'Verify endpoint should succeed for free trial');
@@ -267,12 +267,12 @@ async function runMVPVerificationSuite() {
         fetch(`${baseUrl}/payments/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderId, paypalOrderId: 'FREE_TRIAL_PASS' }),
+          body: JSON.stringify({ orderId, stripeSessionId: 'FREE_TRIAL_PASS' }),
         }),
         fetch(`${baseUrl}/payments/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orderId, paypalOrderId: 'FREE_TRIAL_PASS' }),
+          body: JSON.stringify({ orderId, stripeSessionId: 'FREE_TRIAL_PASS' }),
         }),
       ]);
 
@@ -320,7 +320,7 @@ async function runMVPVerificationSuite() {
       const verify1 = await fetch(`${baseUrl}/payments/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, paypalOrderId: 'FREE_TRIAL_PASS' }),
+        body: JSON.stringify({ orderId, stripeSessionId: 'FREE_TRIAL_PASS' }),
       });
       assert.strictEqual(verify1.status, 200);
       const json1 = await verify1.json();
@@ -331,7 +331,7 @@ async function runMVPVerificationSuite() {
       const verify2 = await fetch(`${baseUrl}/payments/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, paypalOrderId: 'FREE_TRIAL_PASS' }),
+        body: JSON.stringify({ orderId, stripeSessionId: 'FREE_TRIAL_PASS' }),
       });
       assert.strictEqual(verify2.status, 200);
       const json2 = await verify2.json();
@@ -383,7 +383,7 @@ async function runMVPVerificationSuite() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId,
-          paypalOrderId: 'FREE_TRIAL_PASS',
+          stripeSessionId: 'FREE_TRIAL_PASS',
           amountCents: 999999, // Tampering attempt
           grossCents: 123456,
         }),

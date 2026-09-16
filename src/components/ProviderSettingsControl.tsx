@@ -227,7 +227,7 @@ export const ProviderSettingsControl: React.FC<ProviderSettingsControlProps> = (
             <span>Provider Operational & Live Event Settings</span>
           </h2>
           <p className="text-xs text-surface-a40 font-mono mt-0.5">
-            Configure 1-on-1 direct video delivery, PayPal settlements, and the PPV Multi-Participant Live Broadcast Container (Switcher Studio Pro + nanoCosmos).
+            Configure 1-on-1 direct video delivery, Talentir settlements, and the PPV Multi-Participant Live Broadcast Container (Switcher Studio Pro + nanoCosmos).
           </p>
         </div>
 
@@ -658,12 +658,12 @@ export const ProviderSettingsControl: React.FC<ProviderSettingsControlProps> = (
       {/* SECTION B: 1-on-1 Consultation Delivery & Operational Controls */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         
-        {/* Card 1: PayPal Settlement Account */}
+        {/* Card 1: Talentir Settlement Account */}
         <div className="bg-surface-a0 border border-surface-a10 rounded-2xl p-6 space-y-5">
           <div className="flex items-center justify-between pb-3 border-b border-surface-a10">
             <div className="flex items-center space-x-2">
               <Mail className="w-4 h-4 text-info-a0" />
-              <h3 className="text-sm font-bold text-theme-light">PayPal Settlement Payout Account</h3>
+              <h3 className="text-sm font-bold text-theme-light">Talentir Settlement Payout Account</h3>
             </div>
             {fieldStatuses['payoutEmail'] === 'saving' && (
               <span className="text-[10px] font-mono text-info-a0 flex items-center space-x-1 animate-pulse">
@@ -681,7 +681,7 @@ export const ProviderSettingsControl: React.FC<ProviderSettingsControlProps> = (
 
           <div className="space-y-2">
             <label className="text-xs font-mono text-surface-a40">
-              Provider PayPal Payout Email (Receives 85% Net Disbursements)
+              Provider Payout Email (Receives 85% Net Disbursements via Talentir)
             </label>
             <div className="relative">
               <input
@@ -693,7 +693,7 @@ export const ProviderSettingsControl: React.FC<ProviderSettingsControlProps> = (
               />
             </div>
             <p className="text-[11px] text-surface-a40 leading-relaxed font-sans pt-1">
-              All client order captures are automatically split 85% to this PayPal account upon successful session verification or manual settlement.
+              All client order captures are automatically split 85% to this account upon successful session verification or manual settlement via the Talentir provider boundary.
             </p>
           </div>
 

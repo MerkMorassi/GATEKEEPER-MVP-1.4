@@ -39,7 +39,6 @@ export const AdminProvidersControl: React.FC = () => {
   const [formName, setFormName] = useState<string>('');
   const [formEmail, setFormEmail] = useState<string>('');
   const [formPayoutEmail, setFormPayoutEmail] = useState<string>('');
-  const [formPaypalHandle, setFormPaypalHandle] = useState<string>('');
   const [formFacetimeHandle, setFormFacetimeHandle] = useState<string>('');
   const [formActive, setFormActive] = useState<boolean>(true);
   const [formPayoutsEnabled, setFormPayoutsEnabled] = useState<boolean>(true);
@@ -87,7 +86,6 @@ export const AdminProvidersControl: React.FC = () => {
     setFormName(provider.name || '');
     setFormEmail(provider.email || '');
     setFormPayoutEmail(provider.payoutEmail || '');
-    setFormPaypalHandle(provider.paypalMeHandle || '');
     setFormFacetimeHandle(provider.facetimeHandle || '');
     setFormActive(provider.active ?? true);
     setFormPayoutsEnabled(provider.payoutsEnabled ?? true);
@@ -126,7 +124,6 @@ export const AdminProvidersControl: React.FC = () => {
           name: formName,
           email: formEmail,
           payoutEmail: formPayoutEmail,
-          paypalMeHandle: formPaypalHandle,
           facetimeHandle: formFacetimeHandle,
           active: formActive,
           payoutsEnabled: formPayoutsEnabled,
@@ -508,12 +505,12 @@ export const AdminProvidersControl: React.FC = () => {
                     <span className="text-theme-light font-bold">Stripe Connect Destination Charges</span>
                     <span className="text-success-a0 text-[10px] font-bold uppercase">Operational</span>
                   </div>
-                  <div className="flex items-center justify-between p-2 bg-surface-a10/30 rounded-lg border border-surface-a10 opacity-60">
-                    <span className="text-surface-a40 font-bold flex items-center space-x-1">
-                      <Lock className="w-3 h-3 text-warning-a0" />
+                  <div className="flex items-center justify-between p-2 bg-info-a0/10 rounded-lg border border-info-a0/30">
+                    <span className="text-theme-light font-bold flex items-center space-x-1">
+                      <ShieldCheck className="w-3 h-3 text-info-a0" />
                       <span>Talentir Creator Share Engine</span>
                     </span>
-                    <span className="text-warning-a0 text-[10px] font-bold uppercase">COMING SOON / LOCKED</span>
+                    <span className="text-info-a0 text-[10px] font-bold uppercase">Operational</span>
                   </div>
                 </div>
               </div>

@@ -51,7 +51,7 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({ receipt, ord
         createdAt: order.createdAt || settlement?.timestamp || new Date().toISOString(),
         token: order.entitlementToken || order.token || `gk_pass_${order.id}`,
         passcode: order.passcode || order.accessCode,
-        paymentMethod: order.paymentMethod || 'PayPal Express (Verified)',
+        paymentMethod: order.paymentMethod || 'Stripe Secure Payment (Verified)',
         transactionHash: order.transactionHash || order.stripePaymentIntentId,
       };
     }
@@ -196,7 +196,7 @@ export const ReceiptGenerator: React.FC<ReceiptGeneratorProps> = ({ receipt, ord
       addRow('Service Title:', activeReceipt.serviceTitle);
       addRow('Total Amount Paid:', `$${formattedAmount} USD`, true);
       addRow('Payment Status:', 'COMPLETED (Single-Use Entitlement Minted)');
-      addRow('Payment Method:', activeReceipt.paymentMethod || 'PayPal Express (Encrypted & Verified)');
+      addRow('Payment Method:', activeReceipt.paymentMethod || 'Stripe Secure Payment (Encrypted & Verified)');
       addRow('Timestamp:', formattedDate);
 
       if (activeReceipt.clientName) addRow('Client Name:', activeReceipt.clientName);
@@ -414,7 +414,7 @@ GateKeeper Security Engine © 2026 Merk Morassi, LLC
 
             <div className="bg-surface-a0 border border-surface-a10 p-4 rounded-xl space-y-1 print:border-gray-300">
               <div className="text-[10px] text-surface-a40 uppercase">Payment Method</div>
-              <div className="font-bold text-theme-light">{activeReceipt.paymentMethod || 'PayPal Express (Encrypted)'}</div>
+              <div className="font-bold text-theme-light">{activeReceipt.paymentMethod || 'Stripe Secure Payment (Encrypted)'}</div>
             </div>
 
             {activeReceipt.clientName && (

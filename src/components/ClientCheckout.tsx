@@ -67,7 +67,7 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
   // Flow State
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [agreedToIndemnity, setAgreedToIndemnity] = useState(true);
-  const [checkoutStep, setCheckoutStep] = useState<'details' | 'paypal_modal' | 'verifying' | 'success'>('details');
+  const [checkoutStep, setCheckoutStep] = useState<'details' | 'stripe_checkout_modal' | 'verifying' | 'success'>('details');
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [settlement, setSettlement] = useState<Settlement | null>(null);
   const [entitlement, setEntitlement] = useState<Entitlement | null>(null);
@@ -271,7 +271,6 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
       if (data.success && data.order) {
         setCurrentOrder(data.order);
         if (onOrderCreated) onOrderCreated(data.order);
-
         // If trial tier or $0, payment is completely bypassed and order is confirmed automatically
         if (data.isTrial || data.order.status === 'confirmed' || data.order.amountCents === 0) {
           if (data.entitlement) {
@@ -284,22 +283,7 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
           }
         } else {
           // Authoritative Stripe Checkout for any paid order
-          const stripeRes = await fetch('/api/checkout/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              gateToken: activeGateFromHash,
-              serviceId: selectedServiceId,
-            }),
-          });
-          const stripeData = await stripeRes.json();
-          if (stripeData.success && stripeData.checkoutUrl) {
-            window.location.href = stripeData.checkoutUrl;
-            return;
-          } else {
-            setError(stripeData.error || 'Failed to initiate Stripe Checkout Session.');
-            setCheckoutStep('details');
-          }
+          setCheckoutStep('stripe_checkout_modal');
         }
       } else {
         setError(data.error || 'Failed to initiate transaction');
@@ -328,7 +312,7 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId,
-          paypalOrderId: 'FREE_TRIAL_PASS',
+          stripeSessionId: 'FREE_TRIAL_PASS',
         }),
       });
 
@@ -351,7 +335,7 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
   };
 
   // Authoritative Stripe Hosted Checkout initiation
-  const handleConfirmPayPalPayment = async () => {
+  const handleInitiateStripeCheckout = async () => {
     if (!selectedServiceId) return;
     setIsProcessingPayment(true);
     setError(null);
@@ -784,8 +768,8 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
         </div>
       )}
 
-      {/* PayPal Modal Step */}
-      {checkoutStep === 'paypal_modal' && currentOrder && (
+      {/* Stripe Checkout Modal Step */}
+      {checkoutStep === 'stripe_checkout_modal' && currentOrder && (
         <div className="bg-surface-a0 border border-surface-a10 rounded-2xl p-6 sm:p-8 max-w-lg mx-auto shadow-2xl">
           <div className="text-center pb-6 border-b border-surface-a10">
             <div className="w-12 h-12 bg-info-a0/10 border border-info-a0/20 rounded-xl flex items-center justify-center text-info-a0 mx-auto mb-3">
@@ -822,13 +806,12 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
 
           <div className="flex flex-col space-y-3">
             <button
-              onClick={() => handleConfirmPayPalPayment()}
+              onClick={() => handleInitiateStripeCheckout()}
               className="w-full py-3.5 bg-info-a0 hover:bg-info-a10 text-primary-a0 font-bold rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"
             >
               <span>Proceed to Stripe Hosted Checkout</span>
               <ExternalLink className="w-4 h-4" />
             </button>
-
             <button
               onClick={() => setCheckoutStep('details')}
               className="w-full py-2.5 text-xs text-surface-a40 hover:text-theme-light transition-colors"

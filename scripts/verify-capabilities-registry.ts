@@ -25,36 +25,31 @@ async function runCapabilitiesVerification() {
   assert(Boolean(initialCaps.paymentMethods['apple_pay']), 'Payment method "apple_pay" exists in registry');
   assert(Boolean(initialCaps.paymentMethods['google_pay']), 'Payment method "google_pay" exists in registry');
   assert(Boolean(initialCaps.paymentMethods['cash_app']), 'Payment method "cash_app" exists in registry');
-  assert(Boolean(initialCaps.paymentMethods['paypal']), 'Payment method "paypal" exists in registry');
-
+  
   // Test 2: Payout providers registry
   assert(Boolean(initialCaps.payoutProviders['stripe_connect']), 'Payout provider "stripe_connect" exists in registry');
   assert(Boolean(initialCaps.payoutProviders['talentir']), 'Payout provider "talentir" exists in registry');
-  assert(initialCaps.payoutProviders['talentir'].status === 'coming_soon', 'Talentir status is explicitly "coming_soon"');
-  assert(initialCaps.payoutProviders['talentir'].enabled === false, 'Talentir is explicitly disabled');
+  
+  // v1.4: Talentir should be operational by default in seeded DB
+  assert(initialCaps.payoutProviders['talentir'].status === 'operational', 'Talentir status is "operational"');
+  assert(initialCaps.payoutProviders['talentir'].enabled === true, 'Talentir is enabled');
 
   // Test 3: Admin toggle payment method (Cash App Pay)
   const toggledCashApp = db.togglePaymentMethodCapability('cash_app', true);
   assert(toggledCashApp.paymentMethods['cash_app'].enabled === true, 'Cash App Pay successfully enabled via DB toggle');
-
+  
   const revertedCashApp = db.togglePaymentMethodCapability('cash_app', false);
   assert(revertedCashApp.paymentMethods['cash_app'].enabled === false, 'Cash App Pay successfully reverted to disabled');
 
-  // Test 4: Talentir feature boundary enforcement
-  let talentirRejected = false;
-  try {
-    db.togglePayoutProviderCapability('talentir', true);
-  } catch (err: any) {
-    if (err.message.includes('TALENTIR_FEATURE_BOUNDARY')) {
-      talentirRejected = true;
-    }
-  }
-  assert(talentirRejected, 'Attempting to enable Talentir payout provider is rejected with TALENTIR_FEATURE_BOUNDARY exception');
-
-  // Test 5: Standard payout provider toggle (PayPal Payouts)
-  const toggledPaypal = db.togglePayoutProviderCapability('paypal_payouts', true);
-  assert(toggledPaypal.payoutProviders['paypal_payouts'].enabled === true, 'PayPal Payouts provider enabled');
-  db.togglePayoutProviderCapability('paypal_payouts', false);
+  // Test 4: Talentir toggle (Now allowed in v1.4)
+  console.log('\n--- v1.4 Talentir Toggle Verification ---');
+  db.togglePayoutProviderCapability('talentir', false);
+  const talentirDisabled = db.getPaymentCapabilities().payoutProviders['talentir'];
+  assert(talentirDisabled.enabled === false && talentirDisabled.status === 'disabled', 'Talentir successfully disabled');
+  
+  db.togglePayoutProviderCapability('talentir', true);
+  const talentirEnabled = db.getPaymentCapabilities().payoutProviders['talentir'];
+  assert(talentirEnabled.enabled === true && talentirEnabled.status === 'operational', 'Talentir successfully re-enabled');
 
   console.log('-----------------------------------------------------------');
   console.log(`VERIFICATION SUMMARY: ${passed} PASSED, ${failed} FAILED`);

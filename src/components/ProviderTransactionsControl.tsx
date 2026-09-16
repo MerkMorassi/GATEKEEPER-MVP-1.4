@@ -209,7 +209,7 @@ export const ProviderTransactionsControl: React.FC<ProviderTransactionsControlPr
             ${metrics.providerShareDollars}
           </div>
           <p className="text-[11px] text-surface-a40 font-mono">
-            Automated PayPal disbursements
+            Automated Talentir disbursements
           </p>
         </div>
 
