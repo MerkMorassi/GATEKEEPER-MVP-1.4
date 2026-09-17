@@ -231,18 +231,27 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
     let targetSessionId = checkoutSessionId;
     let isCancel = checkoutStatus === 'cancel';
 
+    // Parse URL parameters if not pre-populated via props
+    const hash = window.location.hash;
+    const searchParams = new URLSearchParams(window.location.search);
+    
+    if (!targetSessionId) {
+      targetSessionId = searchParams.get('payment_intent') || 
+                        searchParams.get('session_id') || 
+                        searchParams.get('sessionId') || 
+                        undefined;
+    }
+
     if (!targetOrderId) {
-      const hash = window.location.hash;
-      const searchParams = new URLSearchParams(window.location.search);
       const qOrder = searchParams.get('orderId') || searchParams.get('order_id');
-      const qSession = searchParams.get('session_id') || searchParams.get('sessionId');
+      const qSession = searchParams.get('session_id') || searchParams.get('sessionId') || searchParams.get('payment_intent');
       const qCheckout = searchParams.get('checkout');
 
       if (qCheckout === 'cancel' || hash.includes('checkout-cancel') || hash.startsWith('#cancel')) {
         isCancel = true;
       }
       if (qOrder) targetOrderId = qOrder;
-      if (qSession) targetSessionId = qSession;
+      if (qSession && !targetSessionId) targetSessionId = qSession;
 
       if (!targetOrderId && hash.includes('checkout-success')) {
         const cleanHash = hash.replace(/^#/, '');
@@ -250,10 +259,12 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
         const sessionMatch = cleanHash.match(/sessionId=([^&?]+)/) || cleanHash.match(/session_id=([^&?]+)/);
         const piMatch = cleanHash.match(/[?&]payment_intent=([^&]+)/);
         if (orderMatch) targetOrderId = orderMatch[1];
-        if (sessionMatch) {
-          targetSessionId = sessionMatch[1];
-        } else if (piMatch) {
-          targetSessionId = piMatch[1];
+        if (!targetSessionId) {
+          if (sessionMatch) {
+            targetSessionId = sessionMatch[1];
+          } else if (piMatch) {
+            targetSessionId = piMatch[1];
+          }
         }
       }
     }
@@ -410,12 +421,14 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
       }
 
       // 2. Call payments/verify endpoint with orderId and sessionId
+      const isPi = stripeSessionId && stripeSessionId.startsWith('pi_');
       const verifyRes = await fetch('/api/payments/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId,
           stripeSessionId: stripeSessionId || 'STRIPE_VERIFY',
+          paymentIntentId: isPi ? stripeSessionId : undefined,
         }),
       });
 
@@ -730,11 +743,7 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
                       key={svc.id}
                       onClick={() => {
                         setSelectedServiceId(svc.id);
-                        if (svc.defaultDurationMinutes) {
-                          setSelectedDurationMinutes(svc.defaultDurationMinutes);
-                        } else if (isTrial) {
-                          setSelectedDurationMinutes(15);
-                        }
+                        setSelectedDurationMinutes(svc.defaultDurationMinutes || 15);
                       }}
                       className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col justify-between gap-3 ${
                         isSelected 
@@ -979,7 +988,7 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
                   ) : (
                     <>
                       <DollarSign className="w-5 h-5" />
-                      <span>Pay ${(((selectedSvc?.feeCents ?? 0) / 100)).toFixed(2)} via Stripe</span>
+                      <span>Pay ${(calculateDisplayPrice(selectedSvc, selectedDurationMinutes) / 100).toFixed(2)} via Stripe</span>
                       <ArrowRight className="w-5 h-5 ml-1" />
                     </>
                   )}

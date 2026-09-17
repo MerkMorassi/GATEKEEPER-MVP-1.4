@@ -126,8 +126,13 @@ export default function App() {
         const sessionIdMatch = cleanHash.match(/sessionId=([^&?]+)/) || cleanHash.match(/session_id=([^&?]+)/);
         const piMatch = cleanHash.match(/[?&]payment_intent=([^&]+)/);
 
+        const parsedSessionId = searchParams.get('payment_intent') || 
+                               searchParams.get('session_id') || 
+                               searchParams.get('sessionId') || 
+                               (sessionIdMatch ? sessionIdMatch[1] : (piMatch ? piMatch[1] : undefined));
+
         setCheckoutOrderId(orderIdMatch ? orderIdMatch[1] : undefined);
-        setCheckoutSessionId(sessionIdMatch ? sessionIdMatch[1] : (piMatch ? piMatch[1] : undefined));
+        setCheckoutSessionId(parsedSessionId || undefined);
         setCheckoutStatus('success');
         setActiveGateFromHash(undefined);
         setActiveTokenFromHash(undefined);

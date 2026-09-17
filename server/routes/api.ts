@@ -676,8 +676,8 @@ apiRouter.post('/orders/create', async (req: Request, res: Response) => {
 // 3. Verify Payment & Execute 85/15 Settlement + Provider Payout + Entitlement QR Generation
 apiRouter.post('/payments/verify', async (req: Request, res: Response) => {
   try {
-    const { orderId, stripeSessionId } = req.body;
-    const externalPaymentId = stripeSessionId;
+    const { orderId, stripeSessionId, paymentIntentId: reqPaymentIntentId } = req.body;
+    const externalPaymentId = stripeSessionId || reqPaymentIntentId;
 
     if (!orderId) {
       return res.status(400).json({ success: false, error: 'Missing orderId parameter' });
@@ -791,7 +791,9 @@ apiRouter.post('/payments/verify', async (req: Request, res: Response) => {
 
       // 1. Check for PaymentIntent-based verification (Stripe Elements / pi_...)
       let paymentIntentToVerify = '';
-      if (sessionIdToVerify && typeof sessionIdToVerify === 'string' && sessionIdToVerify.startsWith('pi_')) {
+      if (reqPaymentIntentId && typeof reqPaymentIntentId === 'string' && reqPaymentIntentId.startsWith('pi_')) {
+        paymentIntentToVerify = reqPaymentIntentId;
+      } else if (sessionIdToVerify && typeof sessionIdToVerify === 'string' && sessionIdToVerify.startsWith('pi_')) {
         paymentIntentToVerify = sessionIdToVerify;
       } else if (order.stripePaymentIntentId && order.stripePaymentIntentId.startsWith('pi_')) {
         paymentIntentToVerify = order.stripePaymentIntentId;
@@ -1000,6 +1002,68 @@ apiRouter.get('/checkout/status/:orderId', async (req: Request, res: Response) =
           }
         } catch (err: any) {
           console.warn('[CHECKOUT_STATUS_SYNC_WARNING]', err.message);
+        }
+      }
+    } else if (order.stripePaymentIntentId && order.stripePaymentIntentId.startsWith('pi_')) {
+      const stripe = getStripeClient();
+      if (stripe) {
+        try {
+          const paymentIntent = await stripe.paymentIntents.retrieve(order.stripePaymentIntentId);
+          if (paymentIntent.status === 'succeeded') {
+            const provider = db.getProvider();
+            const appUrl = getAppBaseUrl(req);
+            const service = provider.services.find((s) => s.id === order.serviceId);
+            const newEntitlement = await createEntitlement(
+              order.id,
+              provider.id,
+              provider.facetimeHandle,
+              appUrl,
+              {
+                durationMinutes: order.durationMinutes || service?.defaultDurationMinutes || 15,
+                isTrial: Boolean(order.isTrial),
+                serviceName: order.serviceName,
+              }
+            );
+            db.atomicCaptureAndIssueEntitlement(order, newEntitlement);
+            db.saveOrder(order);
+
+            // Save Payment Record if missing
+            const existingPayment = db.getPayment(order.id);
+            if (!existingPayment) {
+              const paymentRecord: PaymentRecord = {
+                orderId: order.id,
+                paypalOrderId: order.stripePaymentIntentId,
+                paypalCaptureId: order.stripePaymentIntentId,
+                payerEmail: paymentIntent.receipt_email || (paymentIntent as any).charges?.data?.[0]?.billing_details?.email || 'client@gatekeeper.local',
+                payerName: (paymentIntent as any).charges?.data?.[0]?.billing_details?.name || 'Stripe Customer',
+                amountCents: order.amountCents,
+                currency: order.currency || 'USD',
+                status: 'captured',
+                timestamp: new Date().toISOString(),
+                verifiedServerSide: true,
+              };
+              db.savePayment(paymentRecord);
+            }
+
+            const customerEmail = paymentIntent.receipt_email || (paymentIntent as any).charges?.data?.[0]?.billing_details?.email;
+            const customerName = (paymentIntent as any).charges?.data?.[0]?.billing_details?.name;
+            if (customerEmail) {
+              db.autoProvisionClientUser(customerEmail, customerName, {
+                source: 'auto_provision_checkout',
+                lastOrderId: order.id,
+              });
+            }
+
+            return res.json({
+              success: true,
+              status: order.status,
+              order,
+              entitlement: newEntitlement,
+              settlement: db.getSettlement(order.id),
+            });
+          }
+        } catch (err: any) {
+          console.warn('[CHECKOUT_STATUS_INTENT_SYNC_WARNING]', err.message);
         }
       }
     }
