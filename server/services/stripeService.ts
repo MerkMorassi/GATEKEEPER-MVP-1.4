@@ -31,6 +31,69 @@ export interface CreateCheckoutParams {
   secretKeyOverride?: string;
 }
 
+export interface CreatePaymentIntentParams {
+  order: Order;
+  provider: ProviderConfig;
+  secretKeyOverride?: string;
+}
+
+/**
+ * Creates a Stripe PaymentIntent using Destination Charges (Platform MoR model).
+ * Application Fee = Platform Service Share (15% of service fee).
+ * Destination = Provider's Connected Account (85% service + 100% tip).
+ */
+export async function createStripePaymentIntent(params: CreatePaymentIntentParams): Promise<{ clientSecret: string | null; paymentIntentId: string }> {
+  const { order, provider, secretKeyOverride } = params;
+  const stripe = getStripeClient(secretKeyOverride);
+
+  if (!stripe) {
+    throw new Error('Stripe API Key is not configured.');
+  }
+
+  const paymentIntentParams: Stripe.PaymentIntentCreateParams = {
+    amount: order.grossTotalCents,
+    currency: order.currency.toLowerCase(),
+    automatic_payment_methods: {
+      enabled: true,
+    },
+    metadata: {
+      orderId: order.id,
+      providerId: provider.id,
+      serviceId: order.serviceId,
+      serviceCents: order.serviceCents.toString(),
+      tipCents: order.tipCents.toString(),
+      platformTotalShareCents: order.platformTotalShareCents.toString(),
+      providerTotalShareCents: order.providerTotalShareCents.toString(),
+    },
+    description: `GateKeeper Consultation: ${order.serviceName}`,
+  };
+
+  const hasConnectedAccount = Boolean(
+    provider.stripeAccountId && 
+    typeof provider.stripeAccountId === 'string' && 
+    provider.stripeAccountId.trim().startsWith('acct_')
+  );
+
+  if (hasConnectedAccount) {
+    paymentIntentParams.transfer_data = {
+      destination: provider.stripeAccountId!.trim(),
+    };
+    if (order.platformTotalShareCents > 0) {
+      paymentIntentParams.application_fee_amount = order.platformTotalShareCents;
+    }
+  }
+
+  // Use orderId as idempotency key to prevent duplicate intents for the same order
+  const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams, {
+    idempotencyKey: `pi_create_${order.id}`,
+  });
+
+  return {
+    clientSecret: paymentIntent.client_secret,
+    paymentIntentId: paymentIntent.id,
+  };
+}
+
 /**
  * Creates a Stripe Checkout Session using Destination Charges (Platform MoR model).
  * Application Fee = Platform Service Share (15% of service fee).

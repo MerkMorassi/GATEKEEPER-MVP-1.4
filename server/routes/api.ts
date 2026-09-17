@@ -17,6 +17,7 @@ import {
 } from '../domain/stateMachine.js';
 import {
   createStripeCheckoutSession,
+  createStripePaymentIntent,
   executeStripeRefund,
   verifyStripeWebhookSignature,
   isStripeConfigured,
@@ -3180,25 +3181,21 @@ apiRouter.post('/checkout/session', async (req: Request, res: Response) => {
     const appUrl = getAppBaseUrl(req);
     const stripeConfig = db.getStripeConfig();
 
-    const checkoutResult = await createStripeCheckoutSession({
+    const checkoutResult = await createStripePaymentIntent({
       order,
       provider,
       secretKeyOverride: stripeConfig.secretKey || process.env.STRIPE_SECRET_KEY,
-      successUrl: `${appUrl}/#checkout-success&orderId=${order.id}`,
-      cancelUrl: `${appUrl}/#checkout-cancel&orderId=${order.id}`,
     });
 
-    order.stripeCheckoutSessionId = checkoutResult.sessionId;
-    if (checkoutResult.paymentIntentId) {
-      order.stripePaymentIntentId = checkoutResult.paymentIntentId;
-    }
+    order.stripePaymentIntentId = checkoutResult.paymentIntentId;
     db.saveOrder(order);
 
     res.json({
       success: true,
       orderId: order.id,
-      sessionId: checkoutResult.sessionId,
-      checkoutUrl: checkoutResult.url,
+      clientSecret: checkoutResult.clientSecret,
+      paymentIntentId: checkoutResult.paymentIntentId,
+      publishableKey: stripeConfig.publishableKey || process.env.VITE_STRIPE_PUBLISHABLE_KEY,
       breakdown,
     });
   } catch (err: any) {

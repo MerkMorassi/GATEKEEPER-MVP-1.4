@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { loadStripe, Stripe } from '@stripe/stripe-js';
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { Shield, Lock, CheckCircle2, QrCode, Video, ExternalLink, RefreshCw, AlertCircle, ArrowRight, DollarSign, Clock, Calendar, Ticket, Sparkles } from 'lucide-react';
 import { ProviderConfig, Order, Settlement, Entitlement } from '../types';
 import { CheckoutSkeleton } from './Skeleton';
@@ -50,6 +52,79 @@ interface ClientCheckoutProps {
   checkoutStatus?: 'success' | 'cancel' | null;
 }
 
+const StripePaymentForm: React.FC<{ clientSecret: string; orderId: string; onCancel: () => void }> = ({ clientSecret, orderId, onCancel }) => {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!stripe || !elements) return;
+
+    setIsSubmitting(true);
+    setErrorMessage(null);
+
+    const { error: submitError } = await elements.submit();
+    if (submitError) {
+      setErrorMessage(submitError.message || 'Validation failed');
+      setIsSubmitting(false);
+      return;
+    }
+
+    const { error } = await stripe.confirmPayment({
+      elements,
+      clientSecret,
+      confirmParams: {
+        return_url: `${window.location.origin}/#checkout-success&orderId=${orderId}`,
+      },
+    });
+
+    if (error) {
+      setErrorMessage(error.message || 'Payment failed');
+    }
+    
+    setIsSubmitting(false);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <PaymentElement options={{ layout: 'accordion' }} />
+      {errorMessage && (
+        <div className="p-3 bg-danger-a0/10 border border-danger-a0/30 rounded-lg text-xs text-danger-a0 flex items-center space-x-2">
+          <AlertCircle className="w-4 h-4" />
+          <span>{errorMessage}</span>
+        </div>
+      )}
+      <div className="flex flex-col space-y-3 pt-4">
+        <button
+          disabled={!stripe || isSubmitting}
+          type="submit"
+          className="w-full py-3.5 bg-info-a0 hover:bg-info-a10 disabled:opacity-50 text-primary-a0 font-bold rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"
+        >
+          {isSubmitting ? (
+            <RefreshCw className="w-5 h-5 animate-spin" />
+          ) : (
+            <>
+              <span>Authorize Payment</span>
+              <Shield className="w-4 h-4" />
+            </>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isSubmitting}
+          className="w-full py-2.5 text-xs text-surface-a40 hover:text-theme-light transition-colors"
+        >
+          Cancel Order
+        </button>
+      </div>
+    </form>
+  );
+};
+
 export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
   onOrderCreated,
   activeTokenFromHash,
@@ -79,6 +154,10 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
   const [settlement, setSettlement] = useState<Settlement | null>(null);
   const [entitlement, setEntitlement] = useState<Entitlement | null>(null);
   const [handoffStatus, setHandoffStatus] = useState<'HandoffPrepared' | 'HandoffExecuted' | 'HandoffCompleted' | 'HandoffFailed' | null>(null);
+  
+  // Stripe Elements State
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [stripePromise, setStripePromise] = useState<Promise<Stripe | null> | null>(null);
 
   // Appointment Scheduling State
   const [clientTimezone, setClientTimezone] = useState<string>('UTC');
@@ -362,7 +441,7 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
       const isTrial = Boolean(selectedSvc?.isTrial || selectedSvc?.feeCents === 0);
 
       if (!isTrial && selectedSvc && selectedSvc.feeCents > 0) {
-        // Paid checkout: call Stripe Checkout Session endpoint
+        // Paid checkout: call Stripe Checkout Session endpoint (now returns clientSecret for Payment Element)
         const res = await fetch('/api/checkout/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -374,12 +453,22 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
           })
         });
         const data = await res.json();
-        if (data.success && data.checkoutUrl) {
-          // Redirect the patron to Stripe hosted checkout URL
-          window.location.href = data.checkoutUrl;
+        if (data.success && data.clientSecret) {
+          setClientSecret(data.clientSecret);
+          const pubKey = data.publishableKey || (import.meta as any).env.VITE_STRIPE_PUBLISHABLE_KEY;
+          if (pubKey) {
+            setStripePromise(loadStripe(pubKey));
+          }
+          setCurrentOrder({
+            id: data.orderId,
+            serviceName: selectedSvc.name,
+            amountCents: data.breakdown.grossTotalCents,
+            currency: selectedSvc.currency
+          } as any);
+          setCheckoutStep('stripe_checkout_modal');
           return;
         } else {
-          setError(data.error || 'Failed to initiate Stripe Checkout Session.');
+          setError(data.error || 'Failed to initiate Stripe Checkout.');
           setIsProcessingPayment(false);
           return;
         }
@@ -888,13 +977,13 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
       )}
 
       {/* Stripe Checkout Modal Step */}
-      {checkoutStep === 'stripe_checkout_modal' && currentOrder && (
+      {checkoutStep === 'stripe_checkout_modal' && currentOrder && stripePromise && clientSecret && (
         <div className="bg-surface-a0 border border-surface-a10 rounded-2xl p-6 sm:p-8 max-w-lg mx-auto shadow-2xl">
           <div className="text-center pb-6 border-b border-surface-a10">
             <div className="w-12 h-12 bg-info-a0/10 border border-info-a0/20 rounded-xl flex items-center justify-center text-info-a0 mx-auto mb-3">
               <Lock className="w-6 h-6" />
             </div>
-            <h2 className="text-xl font-bold text-theme-light">Stripe Secure Checkout</h2>
+            <h2 className="text-xl font-bold text-theme-light">Secure Checkout</h2>
             <p className="text-xs text-surface-a40 font-mono mt-1">Order ID: {currentOrder.id}</p>
           </div>
 
@@ -906,37 +995,28 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
               </div>
               <div className="flex justify-between text-theme-light">
                 <span>Total Amount:</span>
-                <span className="font-semibold text-info-a0">${(currentOrder.amountCents / 100).toFixed(2)} USD</span>
+                <span className="font-semibold text-info-a0">${(currentOrder.amountCents / 100).toFixed(2)} {currentOrder.currency?.toUpperCase() || 'USD'}</span>
               </div>
             </div>
 
-            <div className="p-4 bg-info-a0/10 border border-info-a0/20 rounded-xl text-xs text-info-a10 leading-relaxed space-y-1.5">
-              <p className="font-medium text-info-a0">Secure Stripe Payment Options</p>
-              <div className="flex flex-wrap gap-1.5 pt-0.5">
-                <span className="bg-surface-a10 px-2 py-0.5 rounded text-[10px] text-theme-light font-medium">Credit/Debit</span>
-                <span className="bg-surface-a10 px-2 py-0.5 rounded text-[10px] text-theme-light font-medium">Apple Pay</span>
-                <span className="bg-surface-a10 px-2 py-0.5 rounded text-[10px] text-theme-light font-medium">Google Pay</span>
-                <span className="bg-surface-a10 px-2 py-0.5 rounded text-[10px] text-theme-light font-medium">Stripe Link</span>
-                <span className="bg-surface-a10 px-2 py-0.5 rounded text-[10px] text-theme-light font-medium">Cash App Pay</span>
-              </div>
-              <p className="pt-1">Your payment is securely processed via Stripe Checkout. Upon authorization, your single-use verified access credential will be generated instantly.</p>
+            <div className="p-1">
+              <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'night', variables: { colorPrimary: '#3b82f6' } } }}>
+                <StripePaymentForm 
+                  clientSecret={clientSecret} 
+                  orderId={currentOrder.id}
+                  onCancel={() => {
+                    setCheckoutStep('details');
+                    setClientSecret(null);
+                  }} 
+                />
+              </Elements>
             </div>
           </div>
 
-          <div className="flex flex-col space-y-3">
-            <button
-              onClick={() => handleInitiateStripeCheckout()}
-              className="w-full py-3.5 bg-info-a0 hover:bg-info-a10 text-primary-a0 font-bold rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"
-            >
-              <span>Proceed to Stripe Hosted Checkout</span>
-              <ExternalLink className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setCheckoutStep('details')}
-              className="w-full py-2.5 text-xs text-surface-a40 hover:text-theme-light transition-colors"
-            >
-              Cancel Order
-            </button>
+          <div className="pt-4 text-center">
+            <p className="text-[10px] text-surface-a40 italic">
+              Payment is securely processed via Stripe Payment Element. Your sensitive credentials never touch our servers.
+            </p>
           </div>
         </div>
       )}
