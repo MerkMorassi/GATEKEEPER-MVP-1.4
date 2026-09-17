@@ -917,6 +917,7 @@ apiRouter.post('/payments/verify', async (req: Request, res: Response) => {
         providerTotalShareCents: order.providerTotalShareCents,
         platformTotalShareCents: order.platformTotalShareCents,
       }, order.currency || 'USD');
+      db.saveSettlement(settlement);
 
       db.logAuditEvent('PAYMENT_VERIFIED', 'system', { orderId: order.id, sessionId: sessionIdToVerify, amountCents: order.amountCents });
 
@@ -1764,12 +1765,34 @@ apiRouter.get('/admin/overview', requireAdminAuth, (req: Request, res: Response)
   const aStartIndex = (aPage - 1) * aLimit;
   const auditEvents = filteredAuditEvents.slice(aStartIndex, aStartIndex + aLimit);
 
-  // 5. Global Financial Summary Metrics (Calculated across FULL dataset)
+  // 5. Global Financial Summary Metrics (Calculated across FULL dataset with self-healing backfill)
+  rawOrders.forEach((o) => {
+    if (o.status === 'paid' || o.status === 'settled' || o.financialState === 'captured') {
+      const existing = db.getSettlement(o.id);
+      if (!existing) {
+        const backfilled = calculateSettlement(o.id, {
+          serviceCents: o.serviceCents,
+          tipCents: o.tipCents,
+          grossTotalCents: o.grossTotalCents,
+          providerServiceShareCents: o.providerServiceShareCents,
+          platformServiceShareCents: o.platformServiceShareCents,
+          providerTipShareCents: o.providerTipShareCents,
+          platformTipShareCents: o.platformTipShareCents,
+          providerTotalShareCents: o.providerTotalShareCents,
+          platformTotalShareCents: o.platformTotalShareCents,
+        }, o.currency || 'USD');
+        db.saveSettlement(backfilled);
+      }
+    }
+  });
+
+  // Re-fetch settlements to include the newly backfilled records
+  const updatedSettlements = db.getAllSettlements();
   let totalGrossCents = 0;
   let totalProviderCents = 0;
   let totalAgentCents = 0;
 
-  rawSettlements.forEach((s) => {
+  updatedSettlements.forEach((s) => {
     totalGrossCents += s.grossCents;
     totalProviderCents += s.providerCents;
     totalAgentCents += s.agentCents;
@@ -1957,6 +1980,43 @@ apiRouter.get('/provider/overview', requireProviderAuth, (req: Request, res: Res
   const providerOrders = allOrders.filter(o => o.providerId === provider.id);
   const gates = allGates.filter(g => g.providerId === provider.id);
 
+  // Self-healing backfill for any paid/captured provider orders
+  providerOrders.forEach((o) => {
+    if (o.status === 'paid' || o.status === 'settled' || o.financialState === 'captured') {
+      const existing = db.getSettlement(o.id);
+      if (!existing) {
+        const backfilled = calculateSettlement(o.id, {
+          serviceCents: o.serviceCents,
+          tipCents: o.tipCents,
+          grossTotalCents: o.grossTotalCents,
+          providerServiceShareCents: o.providerServiceShareCents,
+          platformServiceShareCents: o.platformServiceShareCents,
+          providerTipShareCents: o.providerTipShareCents,
+          platformTipShareCents: o.platformTipShareCents,
+          providerTotalShareCents: o.providerTotalShareCents,
+          platformTotalShareCents: o.platformTotalShareCents,
+        }, o.currency || 'USD');
+        db.saveSettlement(backfilled);
+      }
+    }
+  });
+
+  // Calculate Provider Specific Financial Metrics
+  let providerGrossCents = 0;
+  let providerNetCents = 0;
+  let providerPaidOrdersCount = 0;
+
+  providerOrders.forEach((o) => {
+    if (o.status === 'paid' || o.status === 'settled' || o.financialState === 'captured') {
+      const s = db.getSettlement(o.id);
+      if (s) {
+        providerGrossCents += s.grossCents;
+        providerNetCents += s.providerCents;
+        providerPaidOrdersCount += 1;
+      }
+    }
+  });
+
   const hasPaginationParams = req.query.page !== undefined || req.query.limit !== undefined || req.query.ordersPage !== undefined || req.query.ordersLimit !== undefined;
   const { page, limit } = parsePaginationParams(req.query.ordersPage || req.query.page, req.query.ordersLimit || req.query.limit);
   const total = providerOrders.length;
@@ -1972,6 +2032,11 @@ apiRouter.get('/provider/overview', requireProviderAuth, (req: Request, res: Res
       orders: paginatedOrders,
       totalOrdersCount: total,
       gates,
+      metrics: {
+        grossCents: providerGrossCents,
+        netCents: providerNetCents,
+        paidOrdersCount: providerPaidOrdersCount,
+      },
       ordersPagination: {
         page,
         limit,
@@ -2835,6 +2900,20 @@ apiRouter.get('/admin/orders', requireAdminAuth, async (req: Request, res: Respo
       clientIp: '[PROTECTED_IP]',
     }));
 
+    let globalGrossCents = 0;
+    let globalProviderCents = 0;
+    let globalAgentCents = 0;
+    let globalPaidCount = 0;
+
+    rawOrders.forEach((o) => {
+      if (o.status === 'paid' || o.status === 'settled' || o.financialState === 'captured') {
+        globalGrossCents += o.grossTotalCents || o.amountCents || 0;
+        globalProviderCents += o.providerTotalShareCents || o.providerServiceShareCents || Math.floor((o.grossTotalCents || o.amountCents || 0) * 0.85);
+        globalAgentCents += o.platformTotalShareCents || o.platformServiceShareCents || Math.floor((o.grossTotalCents || o.amountCents || 0) * 0.15);
+        globalPaidCount += 1;
+      }
+    });
+
     return res.json({
       success: true,
       orders,
@@ -2846,6 +2925,12 @@ apiRouter.get('/admin/orders', requireAdminAuth, async (req: Request, res: Respo
       },
       totalCount: rawOrders.length,
       filteredCount: total,
+      metrics: {
+        globalGrossCents,
+        globalProviderCents,
+        globalAgentCents,
+        globalPaidCount,
+      }
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });

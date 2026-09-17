@@ -36,6 +36,13 @@ export const ProviderDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Financial summary metrics state
+  const [metrics, setMetrics] = useState<{
+    grossCents: number;
+    netCents: number;
+    paidOrdersCount: number;
+  } | null>(null);
+
   // Subtab navigation state
   const [providerSubTab, setProviderSubTab] = useState<ProviderSubTab>('profile');
 
@@ -86,6 +93,9 @@ export const ProviderDashboard: React.FC = () => {
         setProvider(data.overview.provider);
         setOrders(data.overview.orders || []);
         setGates(data.overview.gates || []);
+        if (data.overview.metrics) {
+          setMetrics(data.overview.metrics);
+        }
       } else {
         setError(data.error || 'Failed to load Provider overview data.');
       }
@@ -212,6 +222,50 @@ export const ProviderDashboard: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Real-Time Operational Statistics Bar */}
+      {metrics && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fadeIn">
+          <div className="bg-surface-a0 border border-surface-a10 p-5 rounded-2xl shadow-md space-y-2">
+            <div className="flex items-center justify-between text-surface-a40 text-xs uppercase font-mono">
+              <span>Your Net Earnings (85%)</span>
+              <DollarSign className="w-4 h-4 text-success-a0" />
+            </div>
+            <div className="text-2xl font-bold font-mono text-success-a0">
+              ${(metrics.netCents / 100).toFixed(2)}
+            </div>
+            <p className="text-[10px] text-surface-a40 font-mono">
+              Net payout holdings securely collected
+            </p>
+          </div>
+
+          <div className="bg-surface-a0 border border-surface-a10 p-5 rounded-2xl shadow-md space-y-2">
+            <div className="flex items-center justify-between text-surface-a40 text-xs uppercase font-mono">
+              <span>Gross Sales Volume</span>
+              <DollarSign className="w-4 h-4 text-info-a0" />
+            </div>
+            <div className="text-2xl font-bold font-mono text-theme-light">
+              ${(metrics.grossCents / 100).toFixed(2)}
+            </div>
+            <p className="text-[10px] text-surface-a40 font-mono">
+              Total sales across all entry gates
+            </p>
+          </div>
+
+          <div className="bg-surface-a0 border border-surface-a10 p-5 rounded-2xl shadow-md space-y-2">
+            <div className="flex items-center justify-between text-surface-a40 text-xs uppercase font-mono">
+              <span>Disbursed Passes</span>
+              <ExternalLink className="w-4 h-4 text-info-a0" />
+            </div>
+            <div className="text-2xl font-bold font-mono text-theme-light">
+              {metrics.paidOrdersCount} <span className="text-xs font-normal text-surface-a40">/ {orders.length} total orders</span>
+            </div>
+            <p className="text-[10px] text-surface-a40 font-mono">
+              Successful consultation ticket sessions
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Provider Sub-Navigation Tab Bar */}
       <div className="flex items-center space-x-2 border-b border-surface-a10 pb-4 overflow-x-auto no-scrollbar">

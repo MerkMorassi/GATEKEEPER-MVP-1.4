@@ -30,6 +30,14 @@ export const AdminOrdersControl: React.FC = () => {
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalRecords, setTotalRecords] = useState<number>(0);
 
+  // Financial summary metrics state
+  const [metrics, setMetrics] = useState<{
+    globalGrossCents: number;
+    globalProviderCents: number;
+    globalAgentCents: number;
+    globalPaidCount: number;
+  } | null>(null);
+
   // Manual Review action handling
   const [resolvingOrderId, setResolvingOrderId] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
@@ -54,6 +62,9 @@ export const AdminOrdersControl: React.FC = () => {
           setPage(data.pagination.page);
           setTotalPages(data.pagination.totalPages);
           setTotalRecords(data.pagination.total);
+        }
+        if (data.metrics) {
+          setMetrics(data.metrics);
         }
       } else {
         setError(data.error || 'Failed to fetch operational orders.');
@@ -169,6 +180,63 @@ export const AdminOrdersControl: React.FC = () => {
         <div className="bg-danger-a0/10 border border-danger-a0/30 p-3.5 rounded-xl text-xs text-danger-a0 flex items-center space-x-2">
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           <span>{error}</span>
+        </div>
+      )}
+
+      {/* METRICS DASHBOARD CARDS */}
+      {metrics && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn">
+          <div className="bg-surface-a0 border border-surface-a10 p-5 rounded-2xl shadow-md space-y-2">
+            <div className="flex items-center justify-between text-surface-a40 text-xs uppercase">
+              <span>Gross Vol (Captured)</span>
+              <DollarSign className="w-4 h-4 text-info-a0" />
+            </div>
+            <div className="text-xl font-bold font-mono text-theme-light">
+              ${(metrics.globalGrossCents / 100).toFixed(2)}
+            </div>
+            <p className="text-[10px] text-surface-a40">
+              Across all paid consultation passes
+            </p>
+          </div>
+
+          <div className="bg-surface-a0 border border-surface-a10 p-5 rounded-2xl shadow-md space-y-2">
+            <div className="flex items-center justify-between text-surface-a40 text-xs uppercase">
+              <span>Provider Share (85%)</span>
+              <DollarSign className="w-4 h-4 text-success-a0" />
+            </div>
+            <div className="text-xl font-bold font-mono text-success-a0">
+              ${(metrics.globalProviderCents / 100).toFixed(2)}
+            </div>
+            <p className="text-[10px] text-surface-a40">
+              Provider net disbursement holdings
+            </p>
+          </div>
+
+          <div className="bg-surface-a0 border border-surface-a10 p-5 rounded-2xl shadow-md space-y-2">
+            <div className="flex items-center justify-between text-surface-a40 text-xs uppercase">
+              <span>Platform Share (15%)</span>
+              <ShieldCheck className="w-4 h-4 text-info-a0" />
+            </div>
+            <div className="text-xl font-bold font-mono text-info-a0">
+              ${(metrics.globalAgentCents / 100).toFixed(2)}
+            </div>
+            <p className="text-[10px] text-surface-a40">
+              GateKeeper routing escrow fee
+            </p>
+          </div>
+
+          <div className="bg-surface-a0 border border-surface-a10 p-5 rounded-2xl shadow-md space-y-2">
+            <div className="flex items-center justify-between text-surface-a40 text-xs uppercase">
+              <span>Total Paid Orders</span>
+              <CheckCircle2 className="w-4 h-4 text-info-a0" />
+            </div>
+            <div className="text-xl font-bold font-mono text-theme-light">
+              {metrics.globalPaidCount} <span className="text-xs font-normal text-surface-a40">/ {totalRecords} total</span>
+            </div>
+            <p className="text-[10px] text-surface-a40">
+              Verified double-blind payments
+            </p>
+          </div>
         </div>
       )}
 
