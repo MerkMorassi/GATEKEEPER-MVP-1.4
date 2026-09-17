@@ -122,11 +122,12 @@ export default function App() {
         setCurrentTab('client');
       } else if (hash.includes('checkout-success') || hash.includes('checkout_success')) {
         const cleanHash = hash.replace(/^#/, '');
-        const orderIdMatch = cleanHash.match(/orderId=([^&]+)/) || cleanHash.match(/order_id=([^&]+)/);
-        const sessionIdMatch = cleanHash.match(/sessionId=([^&]+)/) || cleanHash.match(/session_id=([^&]+)/);
+        const orderIdMatch = cleanHash.match(/orderId=([^&?]+)/) || cleanHash.match(/order_id=([^&?]+)/);
+        const sessionIdMatch = cleanHash.match(/sessionId=([^&?]+)/) || cleanHash.match(/session_id=([^&?]+)/);
+        const piMatch = cleanHash.match(/[?&]payment_intent=([^&]+)/);
 
         setCheckoutOrderId(orderIdMatch ? orderIdMatch[1] : undefined);
-        setCheckoutSessionId(sessionIdMatch ? sessionIdMatch[1] : undefined);
+        setCheckoutSessionId(sessionIdMatch ? sessionIdMatch[1] : (piMatch ? piMatch[1] : undefined));
         setCheckoutStatus('success');
         setActiveGateFromHash(undefined);
         setActiveTokenFromHash(undefined);

@@ -789,7 +789,38 @@ apiRouter.post('/payments/verify', async (req: Request, res: Response) => {
       let stripeCustomerName: string | undefined = order.payerName;
       let paymentIntentId: string | undefined = order.stripePaymentIntentId;
 
-      if (stripe && sessionIdToVerify && typeof sessionIdToVerify === 'string' && sessionIdToVerify.startsWith('cs_')) {
+      // 1. Check for PaymentIntent-based verification (Stripe Elements / pi_...)
+      let paymentIntentToVerify = '';
+      if (sessionIdToVerify && typeof sessionIdToVerify === 'string' && sessionIdToVerify.startsWith('pi_')) {
+        paymentIntentToVerify = sessionIdToVerify;
+      } else if (order.stripePaymentIntentId && order.stripePaymentIntentId.startsWith('pi_')) {
+        paymentIntentToVerify = order.stripePaymentIntentId;
+      }
+
+      if (stripe && paymentIntentToVerify) {
+        try {
+          const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentToVerify);
+          if (paymentIntent.status === 'succeeded') {
+            paymentVerified = true;
+            paymentIntentId = paymentIntent.id;
+            
+            if (paymentIntent.receipt_email) {
+              stripeCustomerEmail = paymentIntent.receipt_email;
+            } else if ((paymentIntent as any).charges?.data?.[0]?.billing_details?.email) {
+              stripeCustomerEmail = (paymentIntent as any).charges.data[0].billing_details.email;
+            }
+            
+            if ((paymentIntent as any).charges?.data?.[0]?.billing_details?.name) {
+              stripeCustomerName = (paymentIntent as any).charges.data[0].billing_details.name;
+            }
+          }
+        } catch (stripeErr: any) {
+          console.warn('[STRIPE_PAYMENT_INTENT_RETRIEVE_WARNING]', stripeErr.message);
+        }
+      }
+
+      // 2. Fallback to Session-based verification (Stripe Checkout Session / cs_...)
+      if (!paymentVerified && stripe && sessionIdToVerify && typeof sessionIdToVerify === 'string' && sessionIdToVerify.startsWith('cs_')) {
         try {
           const session = await stripe.checkout.sessions.retrieve(sessionIdToVerify);
           if (session.payment_status === 'paid' || session.status === 'complete' || session.payment_status === 'no_payment_required') {
@@ -803,7 +834,7 @@ apiRouter.post('/payments/verify', async (req: Request, res: Response) => {
         } catch (stripeErr: any) {
           console.warn('[STRIPE_SESSION_RETRIEVE_WARNING]', stripeErr.message);
         }
-      } else if (sessionIdToVerify && typeof sessionIdToVerify === 'string' && (sessionIdToVerify.startsWith('ord_test_') || sessionIdToVerify.startsWith('test_'))) {
+      } else if (!paymentVerified && sessionIdToVerify && typeof sessionIdToVerify === 'string' && (sessionIdToVerify.startsWith('ord_test_') || sessionIdToVerify.startsWith('test_'))) {
         paymentVerified = true;
       }
 

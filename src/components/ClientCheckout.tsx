@@ -246,10 +246,15 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
 
       if (!targetOrderId && hash.includes('checkout-success')) {
         const cleanHash = hash.replace(/^#/, '');
-        const orderMatch = cleanHash.match(/orderId=([^&]+)/) || cleanHash.match(/order_id=([^&]+)/);
-        const sessionMatch = cleanHash.match(/sessionId=([^&]+)/) || cleanHash.match(/session_id=([^&]+)/);
+        const orderMatch = cleanHash.match(/orderId=([^&?]+)/) || cleanHash.match(/order_id=([^&?]+)/);
+        const sessionMatch = cleanHash.match(/sessionId=([^&?]+)/) || cleanHash.match(/session_id=([^&?]+)/);
+        const piMatch = cleanHash.match(/[?&]payment_intent=([^&]+)/);
         if (orderMatch) targetOrderId = orderMatch[1];
-        if (sessionMatch) targetSessionId = sessionMatch[1];
+        if (sessionMatch) {
+          targetSessionId = sessionMatch[1];
+        } else if (piMatch) {
+          targetSessionId = piMatch[1];
+        }
       }
     }
 
