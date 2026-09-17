@@ -137,12 +137,15 @@ export interface StripeConfig {
   publishableKey?: string;
   secretKey?: string;
   webhookSecret?: string;
+  appUrl?: string;
   configuredAt?: string;
   updatedAt?: string;
   accountId?: string;
   connected?: boolean;
   lastConnectionTest?: string;
   lastSandboxTest?: string;
+  verifiedSecretKey?: boolean;
+  verifiedWebhookSecret?: boolean;
 }
 
 export interface StripeConfigResponse {
@@ -151,10 +154,16 @@ export interface StripeConfigResponse {
   publishableKey: string;
   secretKeyConfigured: boolean;
   webhookSecretConfigured: boolean;
+  appUrl: string;
+  appUrlSource: 'env' | 'database' | 'request_host' | 'default';
   accountId: string | null;
   connected: boolean;
   lastConnectionTest: string | null;
   lastSandboxTest: string | null;
+  persisted: boolean;
+  verifiedSecretKey: boolean;
+  verifiedWebhookSecret: boolean;
+  verifiedAppUrl?: boolean;
 }
 
 export interface Gate {

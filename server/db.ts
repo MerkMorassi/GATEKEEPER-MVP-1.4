@@ -298,6 +298,7 @@ export const lockManager = new AsyncLockManager();
 
 class Database {
   private data: Schema;
+  private lastSaveSucceeded: boolean = true;
 
   constructor() {
     this.data = this.load();
@@ -565,15 +566,23 @@ class Database {
     return initial;
   }
 
-  private saveData(data: Schema = this.data): void {
+  private saveData(data: Schema = this.data): boolean {
     try {
       // G8: Atomic file write using temp file and atomic rename
       const payload = JSON.stringify(data, null, 2);
       fs.writeFileSync(TEMP_FILE, payload, 'utf-8');
       fs.renameSync(TEMP_FILE, DATA_FILE);
+      this.lastSaveSucceeded = true;
+      return true;
     } catch (e: any) {
       console.warn('[GateKeeper DB] Warning: Failed to write database file (this is expected in read-only serverless environments like Vercel):', e.message);
+      this.lastSaveSucceeded = false;
+      return false;
     }
+  }
+
+  isPersisted(): boolean {
+    return this.lastSaveSucceeded;
   }
 
   // Provider
@@ -592,14 +601,14 @@ class Database {
     return { ...this.data.stripeConfig };
   }
 
-  updateStripeConfig(updates: Partial<StripeConfig>): StripeConfig {
+  updateStripeConfig(updates: Partial<StripeConfig>): { config: StripeConfig; persisted: boolean } {
     this.data.stripeConfig = {
       ...this.data.stripeConfig,
       ...updates,
       updatedAt: new Date().toISOString(),
     };
-    this.saveData();
-    return this.getStripeConfig();
+    const persisted = this.saveData();
+    return { config: this.getStripeConfig(), persisted };
   }
 
   // Orders

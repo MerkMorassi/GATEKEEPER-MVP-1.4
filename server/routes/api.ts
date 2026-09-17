@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { execSync } from 'child_process';
 import { Router, Request, Response } from 'express';
+import Stripe from 'stripe';
 import { db, lockManager } from '../db.js';
 import { calculateSettlement, calculateServiceAndTipBreakdown, calculateRefundBreakdown, MINIMUM_SERVICE_FEE_CENTS, FinancialBreakdown } from '../domain/money.js';
 import { createEntitlement, generateOpaqueToken } from '../domain/access.js';
@@ -81,10 +82,13 @@ function getCookieOptions(req: Request) {
  * Priority: APP_URL env var > Request Host Header > Localhost Fallback.
  */
 function getAppBaseUrl(req: Request): string {
+  const config = db.getStripeConfig();
   const rawHost = req.headers.host || 'localhost:3000';
   const safeHost = rawHost.replace(/[^a-zA-Z0-9.:-]/g, '');
   const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production' ? 'https' : 'http';
-  let baseUrl = (process.env.APP_URL || `${protocol}://${safeHost}`).trim();
+  
+  let baseUrl = (config.appUrl || process.env.APP_URL || `${protocol}://${safeHost}`).trim();
+  
   if (baseUrl.endsWith('/')) {
     baseUrl = baseUrl.slice(0, -1);
   }
@@ -1387,29 +1391,41 @@ apiRouter.get('/admin/stripe', requireAdminAuth, (req: Request, res: Response) =
   const effectivePk = config.publishableKey || process.env.VITE_STRIPE_PUBLISHABLE_KEY || '';
   const effectiveSk = config.secretKey || process.env.STRIPE_SECRET_KEY || '';
   const effectiveWh = config.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET || '';
+  const appUrl = getAppBaseUrl(req);
+  const appUrlSource = config.appUrl ? 'database' : (process.env.APP_URL ? 'env' : 'request_host');
+  const isUrlValid = Boolean(appUrl && (appUrl.startsWith('http://') || appUrl.startsWith('https://')));
+
+  const verifiedSecretKey = Boolean(effectiveSk && config.verifiedSecretKey);
+  const verifiedWebhookSecret = Boolean(effectiveWh && config.verifiedWebhookSecret);
 
   return res.json({
     success: true,
     stripeConfig: {
-      configured: Boolean(effectivePk && effectiveSk),
+      configured: Boolean(effectivePk && effectiveSk && verifiedSecretKey),
       environment: config.environment || 'test',
       publishableKey: maskStripeKey(effectivePk),
       secretKeyConfigured: Boolean(effectiveSk),
       webhookSecretConfigured: Boolean(effectiveWh),
+      appUrl,
+      appUrlSource,
       accountId: config.accountId || null,
-      connected: Boolean(config.connected),
+      connected: Boolean(config.connected && verifiedSecretKey),
       lastConnectionTest: config.lastConnectionTest || null,
       lastSandboxTest: config.lastSandboxTest || null,
+      persisted: db.isPersisted(),
+      verifiedSecretKey,
+      verifiedWebhookSecret,
+      verifiedAppUrl: isUrlValid,
     },
   });
 });
 
 // 11b. Admin Stripe Config PUT (Protected by requireAdminAuth)
-apiRouter.put('/admin/stripe', requireAdminAuth, (req: Request, res: Response) => {
+apiRouter.put('/admin/stripe', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { environment, publishableKey, secretKey, webhookSecret, enableLiveConfirmed } = req.body;
+    const { environment, publishableKey, secretKey, webhookSecret, appUrl, enableLiveConfirmed } = req.body;
     const targetEnv = (environment || 'test').toLowerCase();
-
+    
     if (targetEnv !== 'test' && targetEnv !== 'live') {
       return res.status(400).json({ success: false, error: 'Environment must be either "test" or "live".' });
     }
@@ -1418,11 +1434,12 @@ apiRouter.put('/admin/stripe', requireAdminAuth, (req: Request, res: Response) =
     const cleanPk = publishableKey !== undefined ? String(publishableKey).trim() : undefined;
     const cleanSk = secretKey !== undefined ? String(secretKey).trim() : undefined;
     const cleanWh = webhookSecret !== undefined ? String(webhookSecret).trim() : undefined;
+    const cleanAppUrl = appUrl !== undefined ? String(appUrl).trim() : undefined;
 
     // Cross-mode contamination protection
     if (targetEnv === 'test') {
-      if (cleanSk && cleanSk.startsWith('sk_live_')) {
-        return res.status(400).json({ success: false, error: 'Cannot use Live Secret Key (sk_live_...) in Sandbox / Test Mode.' });
+      if (cleanSk && (cleanSk.startsWith('sk_live_') || cleanSk.startsWith('rk_live_'))) {
+        return res.status(400).json({ success: false, error: 'Cannot use Live Secret Key (sk_live_... / rk_live_...) in Sandbox / Test Mode.' });
       }
       if (cleanPk && cleanPk.startsWith('pk_live_')) {
         return res.status(400).json({ success: false, error: 'Cannot use Live Publishable Key (pk_live_...) in Sandbox / Test Mode.' });
@@ -1431,25 +1448,109 @@ apiRouter.put('/admin/stripe', requireAdminAuth, (req: Request, res: Response) =
       if (!enableLiveConfirmed) {
         return res.status(400).json({ success: false, error: 'Live mode activation requires explicit administrative confirmation (enableLiveConfirmed).' });
       }
-      if (cleanSk && cleanSk.startsWith('sk_test_')) {
-        return res.status(400).json({ success: false, error: 'Cannot use Test Secret Key (sk_test_...) in Live Mode.' });
+      if (cleanSk && (cleanSk.startsWith('sk_test_') || cleanSk.startsWith('rk_test_'))) {
+        return res.status(400).json({ success: false, error: 'Cannot use Test Secret Key (sk_test_... / rk_test_...) in Live Mode.' });
       }
       if (cleanPk && cleanPk.startsWith('pk_test_')) {
         return res.status(400).json({ success: false, error: 'Cannot use Test Publishable Key (pk_test_...) in Live Mode.' });
       }
     }
 
-    const updates: Partial<StripeConfig> = { environment: targetEnv };
-    if (cleanPk !== undefined) updates.publishableKey = cleanPk;
-    if (cleanSk !== undefined) updates.secretKey = cleanSk;
-    if (cleanWh !== undefined) updates.webhookSecret = cleanWh;
+    const updates: Partial<StripeConfig> = { 
+      environment: targetEnv as 'test' | 'live',
+      verifiedSecretKey: currentConfig.verifiedSecretKey,
+      verifiedWebhookSecret: currentConfig.verifiedWebhookSecret,
+    };
+    
+    // Publishable key validation
+    if (cleanPk !== undefined) {
+      if (cleanPk.length > 0 && !cleanPk.startsWith('pk_test_') && !cleanPk.startsWith('pk_live_')) {
+        return res.status(400).json({ success: false, error: 'Invalid Publishable Key format. Key must start with pk_test_ or pk_live_.' });
+      }
+      updates.publishableKey = cleanPk;
+    }
 
-    const updated = db.updateStripeConfig(updates);
+    // Secret key validation & live connection test
+    if (cleanSk !== undefined) {
+      if (cleanSk.length > 0) {
+        if (!cleanSk.startsWith('sk_test_') && !cleanSk.startsWith('sk_live_') && !cleanSk.startsWith('rk_test_') && !cleanSk.startsWith('rk_live_')) {
+          return res.status(400).json({ success: false, error: 'Invalid Secret Key format. Must start with sk_test_, sk_live_, rk_test_, or rk_live_.' });
+        }
+        try {
+          const tempStripe = new Stripe(cleanSk, { apiVersion: '2023-10-16' as any });
+          await tempStripe.balance.retrieve();
+          updates.secretKey = cleanSk;
+          updates.verifiedSecretKey = true;
+          updates.connected = true;
+          updates.lastConnectionTest = new Date().toISOString();
+        } catch (err: any) {
+          updates.verifiedSecretKey = false;
+          updates.connected = false;
+          return res.status(400).json({ success: false, error: `Invalid Stripe Secret Key or verification failed: ${err.message}` });
+        }
+      } else {
+        updates.secretKey = '';
+        updates.verifiedSecretKey = false;
+        updates.connected = false;
+      }
+    }
+    
+    // Webhook signing secret validation & cryptographic HMAC test
+    if (cleanWh !== undefined) {
+      if (cleanWh.length > 0) {
+        if (!cleanWh.startsWith('whsec_') || cleanWh.length < 10) {
+          return res.status(400).json({ success: false, error: 'Invalid Webhook Signing Secret format. Must start with whsec_ and be at least 10 characters.' });
+        }
+        const timestamp = Math.floor(Date.now() / 1000);
+        const payload = JSON.stringify({ id: 'evt_verify_whsec', object: 'event', type: 'checkout.session.completed' });
+        const signature = `t=${timestamp},v1=${crypto.createHmac('sha256', cleanWh).update(`${timestamp}.${payload}`).digest('hex')}`;
+        try {
+          const verified = verifyStripeWebhookSignature(payload, signature, cleanWh);
+          if (verified && (verified as any).type === 'checkout.session.completed') {
+            updates.webhookSecret = cleanWh;
+            updates.verifiedWebhookSecret = true;
+          } else {
+            updates.verifiedWebhookSecret = false;
+            return res.status(400).json({ success: false, error: 'Webhook Signing Secret HMAC signature test failed.' });
+          }
+        } catch (err: any) {
+          updates.verifiedWebhookSecret = false;
+          return res.status(400).json({ success: false, error: `Webhook Signing Secret verification failed: ${err.message}` });
+        }
+      } else {
+        updates.webhookSecret = '';
+        updates.verifiedWebhookSecret = false;
+      }
+    }
+
+    // App URL validation
+    if (cleanAppUrl !== undefined) {
+      if (cleanAppUrl.length > 0) {
+        try {
+          const parsed = new URL(cleanAppUrl);
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return res.status(400).json({ success: false, error: 'Application URL must start with http:// or https://' });
+          }
+          updates.appUrl = cleanAppUrl.replace(/\/+$/, '');
+        } catch {
+          return res.status(400).json({ success: false, error: 'Invalid Application URL format.' });
+        }
+      } else {
+        updates.appUrl = '';
+      }
+    }
+
+    // Persist changes to database
+    const { config: updated, persisted } = db.updateStripeConfig(updates);
 
     // Sync process.env for runtime operations
     if (cleanSk !== undefined) process.env.STRIPE_SECRET_KEY = cleanSk;
     if (cleanWh !== undefined) process.env.STRIPE_WEBHOOK_SECRET = cleanWh;
     if (cleanPk !== undefined) process.env.VITE_STRIPE_PUBLISHABLE_KEY = cleanPk;
+    if (cleanAppUrl !== undefined) process.env.APP_URL = cleanAppUrl;
+
+    // Readback verification from database
+    const readback = db.getStripeConfig();
 
     db.logAuditEvent('GATE_UPDATED' as any, 'admin', {
       action: 'UPDATE_STRIPE_CONFIG',
@@ -1457,25 +1558,41 @@ apiRouter.put('/admin/stripe', requireAdminAuth, (req: Request, res: Response) =
       publishableKeyUpdated: cleanPk !== undefined,
       secretKeyUpdated: cleanSk !== undefined,
       webhookSecretUpdated: cleanWh !== undefined,
+      appUrlUpdated: cleanAppUrl !== undefined,
+      persisted,
     });
 
-    const effectivePk = updated.publishableKey || process.env.VITE_STRIPE_PUBLISHABLE_KEY || '';
-    const effectiveSk = updated.secretKey || process.env.STRIPE_SECRET_KEY || '';
-    const effectiveWh = updated.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET || '';
+    const effectivePk = readback.publishableKey || process.env.VITE_STRIPE_PUBLISHABLE_KEY || '';
+    const effectiveSk = readback.secretKey || process.env.STRIPE_SECRET_KEY || '';
+    const effectiveWh = readback.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET || '';
+    const finalAppUrl = getAppBaseUrl(req);
+    const finalAppUrlSource = readback.appUrl ? 'database' : (process.env.APP_URL ? 'env' : 'request_host');
+    const isUrlValid = Boolean(finalAppUrl && (finalAppUrl.startsWith('http://') || finalAppUrl.startsWith('https://')));
+
+    const verifiedSecretKey = Boolean(effectiveSk && readback.verifiedSecretKey);
+    const verifiedWebhookSecret = Boolean(effectiveWh && readback.verifiedWebhookSecret);
 
     return res.json({
       success: true,
-      message: 'Stripe configuration updated successfully.',
+      message: persisted 
+        ? 'Stripe configuration verified and persisted to database successfully.' 
+        : 'Stripe configuration verified in-memory. (Filesystem persistence unavailable in ephemeral runtime).',
       stripeConfig: {
-        configured: Boolean(effectivePk && effectiveSk),
-        environment: updated.environment,
+        configured: Boolean(effectivePk && effectiveSk && verifiedSecretKey),
+        environment: readback.environment,
         publishableKey: maskStripeKey(effectivePk),
         secretKeyConfigured: Boolean(effectiveSk),
         webhookSecretConfigured: Boolean(effectiveWh),
-        accountId: updated.accountId || null,
-        connected: Boolean(updated.connected),
-        lastConnectionTest: updated.lastConnectionTest || null,
-        lastSandboxTest: updated.lastSandboxTest || null,
+        appUrl: finalAppUrl,
+        appUrlSource: finalAppUrlSource,
+        accountId: readback.accountId || null,
+        connected: Boolean(readback.connected && verifiedSecretKey),
+        lastConnectionTest: readback.lastConnectionTest || null,
+        lastSandboxTest: readback.lastSandboxTest || null,
+        persisted,
+        verifiedSecretKey,
+        verifiedWebhookSecret,
+        verifiedAppUrl: isUrlValid,
       },
     });
   } catch (err: any) {
@@ -1493,7 +1610,7 @@ apiRouter.post('/admin/stripe/test-connection', requireAdminAuth, async (req: Re
     const stripe = getStripeClient();
 
     if (!stripe) {
-      db.updateStripeConfig({ connected: false, lastConnectionTest: new Date().toISOString() });
+      db.updateStripeConfig({ connected: false, verifiedSecretKey: false, lastConnectionTest: new Date().toISOString() });
       return res.status(400).json({
         success: false,
         connected: false,
@@ -1504,8 +1621,9 @@ apiRouter.post('/admin/stripe/test-connection', requireAdminAuth, async (req: Re
     try {
       await stripe.balance.retrieve();
       const accountId = config.accountId || 'acct_primary';
-      const updated = db.updateStripeConfig({
+      const { config: updated } = db.updateStripeConfig({
         connected: true,
+        verifiedSecretKey: true,
         accountId,
         lastConnectionTest: new Date().toISOString(),
       });
@@ -1518,7 +1636,7 @@ apiRouter.post('/admin/stripe/test-connection', requireAdminAuth, async (req: Re
         message: 'Stripe API connection verified successfully.',
       });
     } catch (stripeErr: any) {
-      db.updateStripeConfig({ connected: false, lastConnectionTest: new Date().toISOString() });
+      db.updateStripeConfig({ connected: false, verifiedSecretKey: false, lastConnectionTest: new Date().toISOString() });
       return res.status(400).json({
         success: false,
         connected: false,

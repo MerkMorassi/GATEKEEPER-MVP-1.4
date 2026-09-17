@@ -167,16 +167,19 @@ export async function executeStripeRefund(params: {
   };
 }
 
-export function verifyStripeWebhookSignature(rawBody: string | Buffer, signature: string): Stripe.Event | null {
-  const stripe = getStripeClient();
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+export function verifyStripeWebhookSignature(rawBody: string | Buffer, signature: string, customWebhookSecret?: string): Stripe.Event | null {
+  const webhookSecret = customWebhookSecret || process.env.STRIPE_WEBHOOK_SECRET;
 
-  if (!stripe || !webhookSecret) {
+  if (!webhookSecret) {
     return null;
   }
 
   try {
-    return stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+    const stripe = getStripeClient();
+    if (stripe) {
+      return stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+    }
+    return Stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
   } catch (err) {
     console.error('Stripe webhook signature verification failed:', err);
     return null;

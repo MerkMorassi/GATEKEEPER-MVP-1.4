@@ -50,7 +50,7 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, onTabChange, role, o
     }
     return (
       <span className="text-[9px] sm:text-[10px] uppercase font-mono px-1.5 sm:px-2 py-0.5 rounded-full bg-info-a0/20 text-info-a0 border border-info-a0/30 font-semibold">
-        MVP 1.2
+        MVP 1.4
       </span>
     );
   };

@@ -9,6 +9,7 @@
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "test:stripe": "tsx scripts/verify-stripe-architecture.ts",
+    "test:stripe:lifecycle": "tsx scripts/verify-stripe-config-lifecycle.ts",
     "clean": "rm -rf dist server.cjs",
     "lint": "tsc --noEmit"
   },
