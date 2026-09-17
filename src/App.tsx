@@ -23,6 +23,11 @@ export default function App() {
   const [checkoutStatus, setCheckoutStatus] = useState<'success' | 'cancel' | null>(null);
   const [role, setRole] = useState<'admin' | 'provider' | 'client' | 'guest' | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+
+  // Programmatic handoff checkout state
+  const [initialClientSecret, setInitialClientSecret] = useState<string | undefined>();
+  const [initialOrder, setInitialOrder] = useState<any | undefined>();
+  const [initialPublishableKey, setInitialPublishableKey] = useState<string | undefined>();
   
   // Device Auth state
   const [deviceAuthenticated, setDeviceAuthenticated] = useState<boolean>(true); // Default true until checked
@@ -65,6 +70,11 @@ export default function App() {
     const handleHash = () => {
       const hash = window.location.hash;
       const searchParams = new URLSearchParams(window.location.search);
+
+      // Reset programmatic handoff state when hash changes to a new route
+      setInitialClientSecret(undefined);
+      setInitialOrder(undefined);
+      setInitialPublishableKey(undefined);
 
       // 1. Check Query Params for checkout redirect
       const queryOrderId = searchParams.get('orderId') || searchParams.get('order_id');
@@ -327,7 +337,16 @@ export default function App() {
         )}
 
         {currentTab === 'sales' && (
-          <ClientSalesPage onNavigateToCheckout={() => setCurrentTab('client')} />
+          <ClientSalesPage onNavigateToCheckout={(gateToken, serviceId, initClientSecret, initOrder, initPublishableKey) => {
+            if (initClientSecret && initOrder && initPublishableKey) {
+              setInitialClientSecret(initClientSecret);
+              setInitialOrder(initOrder);
+              setInitialPublishableKey(initPublishableKey);
+            }
+            if (gateToken) setActiveGateFromHash(gateToken);
+            if (serviceId) setActiveServiceFromHash(serviceId);
+            setCurrentTab('client');
+          }} />
         )}
 
         {currentTab === 'client' && (
@@ -338,6 +357,9 @@ export default function App() {
             checkoutOrderId={checkoutOrderId}
             checkoutSessionId={checkoutSessionId}
             checkoutStatus={checkoutStatus}
+            initialClientSecret={initialClientSecret}
+            initialOrder={initialOrder}
+            initialPublishableKey={initialPublishableKey}
           />
         )}
         

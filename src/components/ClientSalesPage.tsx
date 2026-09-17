@@ -55,7 +55,13 @@ interface MarketingGateItem {
 }
 
 interface ClientSalesPageProps {
-  onNavigateToCheckout?: (gateToken?: string, serviceId?: string) => void;
+  onNavigateToCheckout?: (
+    gateToken?: string,
+    serviceId?: string,
+    initialClientSecret?: string,
+    initialOrder?: any,
+    initialPublishableKey?: string
+  ) => void;
 }
 
 export const ClientSalesPage: React.FC<ClientSalesPageProps> = ({ onNavigateToCheckout }) => {
@@ -221,12 +227,34 @@ export const ClientSalesPage: React.FC<ClientSalesPageProps> = ({ onNavigateToCh
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             gateToken: selectedGate?.token,
-            serviceId: selectedService.id
+            serviceId: selectedService.id,
+            durationMinutes: selectedDurationMinutes,
+            scheduledTimeSlot: `${selectedDate} @ ${selectedTimeSlot} (${clientTimezone})`,
           })
         });
         const data = await res.json();
-        if (data.success && data.checkoutUrl) {
-          window.location.href = data.checkoutUrl;
+        if (data.success && data.clientSecret) {
+          if (onNavigateToCheckout) {
+            const initialOrder: Order = {
+              id: data.orderId,
+              providerId: providerConfig?.id || '',
+              serviceId: selectedService.id,
+              serviceName: selectedService.name,
+              amountCents: data.breakdown?.grossTotalCents || selectedService.feeCents,
+              currency: selectedService.currency,
+              status: 'created',
+              durationMinutes: selectedDurationMinutes,
+              scheduledTimeSlot: `${selectedDate} @ ${selectedTimeSlot} (${clientTimezone})`,
+              financialState: 'created',
+              entitlementState: 'none',
+              settlementState: 'unsettled',
+              sessionState: 'idle',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            } as any;
+            onNavigateToCheckout(selectedGate?.token, selectedService.id, data.clientSecret, initialOrder, data.publishableKey);
+          }
+          setCheckoutStep('idle');
           return;
         } else {
           setError(data.error || 'Failed to initiate Stripe Checkout Session.');

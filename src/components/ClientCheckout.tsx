@@ -50,6 +50,9 @@ interface ClientCheckoutProps {
   checkoutOrderId?: string;
   checkoutSessionId?: string;
   checkoutStatus?: 'success' | 'cancel' | null;
+  initialClientSecret?: string;
+  initialOrder?: Order;
+  initialPublishableKey?: string;
 }
 
 const StripePaymentForm: React.FC<{ clientSecret: string; orderId: string; onCancel: () => void }> = ({ clientSecret, orderId, onCancel }) => {
@@ -133,6 +136,9 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
   checkoutOrderId,
   checkoutSessionId,
   checkoutStatus,
+  initialClientSecret,
+  initialOrder,
+  initialPublishableKey,
 }) => {
   const [providerConfig, setProviderConfig] = useState<any | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
@@ -196,6 +202,16 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
       setSelectedAppointmentDate('2026-08-18');
     }
   }, []);
+
+  // Handle initializing from passed props (ClientSalesPage handoff)
+  useEffect(() => {
+    if (initialClientSecret && initialOrder && initialPublishableKey) {
+      setClientSecret(initialClientSecret);
+      setCurrentOrder(initialOrder);
+      setStripePromise(loadStripe(initialPublishableKey));
+      setCheckoutStep('stripe_checkout_modal');
+    }
+  }, [initialClientSecret, initialOrder, initialPublishableKey]);
 
   // Fetch provider config
   useEffect(() => {
