@@ -99,6 +99,8 @@ export interface ProviderConfig {
   location?: string;
   phone?: string;
   socials?: ProviderSocials;
+  idleTimeoutMinutes?: number;
+  abnormalSessionThresholdMinutes?: number;
 }
 
 export type CapabilityStatus = 'available' | 'enabled' | 'configured' | 'operational' | 'disabled' | 'coming_soon';
@@ -436,7 +438,12 @@ export type AuditEventType =
   | 'GATE_DELETED'
   | 'DISPUTE_CREATED'
   | 'DISPUTE_WON'
-  | 'DISPUTE_LOST';
+  | 'DISPUTE_LOST'
+  | 'SESSION_STARTED'
+  | 'SESSION_HEARTBEAT'
+  | 'SESSION_IDLE_WARNING'
+  | 'SESSION_IDLE_TIMEOUT'
+  | 'SESSION_ENDED';
 
 export interface AuditEvent {
   id: string;
@@ -445,6 +452,7 @@ export interface AuditEvent {
   operator: string;
   details: Record<string, any>;
   ticketCode?: string;
+  isAbnormalDuration?: boolean;
 }
 
 export interface SupportContext {
@@ -504,6 +512,48 @@ export interface SystemOverview {
   settlementsPagination?: PaginationMeta;
   payoutsPagination?: PaginationMeta;
   auditEventsPagination?: PaginationMeta;
+  securityAnalytics?: SessionSecurityAnalytics;
+}
+
+export interface DailySessionTrend {
+  date: string;
+  label: string;
+  totalSessions: number;
+  avgDurationMinutes: number;
+  avgDurationSeconds: number;
+  totalActivityEvents: number;
+  idleTimeouts: number;
+  idleWarnings: number;
+  abnormalSessions?: number;
+}
+
+export interface AbnormalSessionRecord {
+  sessionId: string;
+  durationSeconds: number;
+  durationMinutes: number;
+  thresholdMinutes: number;
+  operator: string;
+  lastEventTime: string;
+  eventType: string;
+  reason?: string;
+  clientIp?: string;
+}
+
+export interface SessionSecurityAnalytics {
+  totalMonitoredSessions: number;
+  activeSessionsCount: number;
+  totalIdleTimeouts: number;
+  totalIdleWarnings: number;
+  averageSessionDurationSeconds: number;
+  maxSessionDurationSeconds: number;
+  idleTimeoutRatePercentage: number;
+  idleTimeoutMinutes?: number;
+  idleWarningMinutes?: number;
+  abnormalSessionThresholdMinutes?: number;
+  abnormalSessionsCount?: number;
+  abnormalSessionsList?: AbnormalSessionRecord[];
+  dailyTrends30Days?: DailySessionTrend[];
+  recentDiagnostics?: AuditEvent[];
 }
 
 export interface WebAuthnCredential {

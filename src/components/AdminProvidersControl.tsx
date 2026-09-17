@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { ProviderConfig, PaymentCapabilitiesConfig, PaymentMethodCapability } from '../types';
 import { apiFetch } from '../lib/api';
+import { CardSkeleton } from './Skeleton';
 
 export const AdminProvidersControl: React.FC = () => {
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
@@ -147,12 +148,7 @@ export const AdminProvidersControl: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <div className="p-8 text-center text-surface-a40 font-mono flex flex-col items-center justify-center space-y-3">
-        <RefreshCw className="w-6 h-6 animate-spin text-info-a0" />
-        <span>Loading Provider Registry & Capabilities...</span>
-      </div>
-    );
+    return <CardSkeleton count={3} />;
   }
 
   return (

@@ -9,6 +9,8 @@ import { FlashPortal } from './components/FlashPortal';
 import { AccessScanner } from './components/AccessScanner';
 import { DeviceAuthModal } from './components/DeviceAuthModal';
 import { apiFetch, setAuthToken } from './lib/api';
+import { diagnosticService } from './lib/diagnosticService';
+import { sessionConfig, IDLE_TIMEOUT_MS, IDLE_WARNING_MS } from './lib/sessionConfig';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'portal' | 'sales' | 'client' | 'provider' | 'agent' | 'scanner'>('portal');
@@ -29,6 +31,9 @@ export default function App() {
 
   // Check auth session & device auth on load
   useEffect(() => {
+    // Fetch server-configured idle timeout preference and update client constants
+    sessionConfig.fetchServerPreference().catch(() => {});
+
     apiFetch('/api/auth/session')
       .then((res) => res.json())
       .then((data) => {
@@ -167,24 +172,39 @@ export default function App() {
   }, [currentTab]);
 
   const handleLogout = async () => {
+    diagnosticService.endSession('user_logout');
     await apiFetch('/api/auth/logout', { method: 'POST' });
     setAuthToken(null);
     setRole(null);
     setCurrentTab('portal');
   };
 
-  // 15-Minute Inactivity Idle Timer: Automatically logs out inactive authenticated users
+  // Dynamic Inactivity Idle Timer & Diagnostic Monitoring Service
   useEffect(() => {
     // Only monitor inactivity when an authenticated user session is active
     if (!role || role === 'guest') return;
 
-    const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes in milliseconds
+    // Start diagnostic monitoring session for active authenticated user
+    diagnosticService.startSession(role, { initialTab: currentTab });
+
+    let activeTimeoutMs = sessionConfig.idleTimeoutMs;
+    let activeWarningMs = sessionConfig.idleWarningMs;
     let lastActivity = Date.now();
     let timerId: ReturnType<typeof setTimeout> | null = null;
     let throttleTimeout: ReturnType<typeof setTimeout> | null = null;
 
+    // Dynamically react when admin modifies the idle timeout constant
+    const unsubscribeConfig = sessionConfig.subscribe(() => {
+      activeTimeoutMs = sessionConfig.idleTimeoutMs;
+      activeWarningMs = sessionConfig.idleWarningMs;
+      scheduleTimer();
+    });
+
     const triggerAutoLogout = async () => {
-      console.warn('[Session Security] Inactive for more than 15 minutes. Automatically logging out.');
+      console.warn(`[Session Security] Inactive for more than ${sessionConfig.idleTimeoutMinutes} minutes. Automatically logging out.`);
+      const idleSecs = Math.floor((Date.now() - lastActivity) / 1000);
+      diagnosticService.recordIdleTimeout(idleSecs);
+      diagnosticService.endSession('idle_timeout');
       try {
         await handleLogout();
       } catch (err) {
@@ -195,9 +215,15 @@ export default function App() {
     const scheduleTimer = () => {
       if (timerId) clearTimeout(timerId);
       const elapsed = Date.now() - lastActivity;
-      const remaining = Math.max(0, IDLE_TIMEOUT_MS - elapsed);
+
+      // Diagnostic check for idle warning
+      if (elapsed >= activeWarningMs && elapsed < activeTimeoutMs) {
+        diagnosticService.recordIdleWarning(Math.floor(elapsed / 1000));
+      }
+
+      const remaining = Math.max(0, activeTimeoutMs - elapsed);
       timerId = setTimeout(() => {
-        if (Date.now() - lastActivity >= IDLE_TIMEOUT_MS) {
+        if (Date.now() - lastActivity >= activeTimeoutMs) {
           triggerAutoLogout();
         } else {
           scheduleTimer();
@@ -207,6 +233,7 @@ export default function App() {
 
     const onUserActivity = () => {
       lastActivity = Date.now();
+      diagnosticService.recordActivity();
       if (!throttleTimeout) {
         throttleTimeout = setTimeout(() => {
           throttleTimeout = null;
@@ -217,7 +244,11 @@ export default function App() {
 
     const onVisibilityOrFocus = () => {
       if (document.visibilityState === 'visible') {
-        if (Date.now() - lastActivity >= IDLE_TIMEOUT_MS) {
+        const elapsed = Date.now() - lastActivity;
+        if (elapsed >= activeWarningMs && elapsed < activeTimeoutMs) {
+          diagnosticService.recordIdleWarning(Math.floor(elapsed / 1000));
+        }
+        if (elapsed >= activeTimeoutMs) {
           triggerAutoLogout();
         } else {
           scheduleTimer();
@@ -237,6 +268,7 @@ export default function App() {
     scheduleTimer();
 
     return () => {
+      unsubscribeConfig();
       if (timerId) clearTimeout(timerId);
       if (throttleTimeout) clearTimeout(throttleTimeout);
       monitoredEvents.forEach((eventType) => {

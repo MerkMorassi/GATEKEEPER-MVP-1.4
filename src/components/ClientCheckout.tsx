@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Lock, CheckCircle2, QrCode, Video, ExternalLink, RefreshCw, AlertCircle, ArrowRight, DollarSign, Clock, Calendar, Ticket, Sparkles } from 'lucide-react';
 import { ProviderConfig, Order, Settlement, Entitlement } from '../types';
+import { CheckoutSkeleton } from './Skeleton';
 
 export type HandoffStatus = 'HandoffPrepared' | 'HandoffExecuted' | 'HandoffCompleted' | 'HandoffFailed';
 
@@ -72,7 +73,7 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
 
   // Flow State
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
-  const [agreedToIndemnity, setAgreedToIndemnity] = useState(true);
+  const [agreedToIndemnity, setAgreedToIndemnity] = useState(false);
   const [checkoutStep, setCheckoutStep] = useState<'details' | 'stripe_checkout_modal' | 'verifying' | 'success'>('details');
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [settlement, setSettlement] = useState<Settlement | null>(null);
@@ -524,12 +525,7 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
   };
 
   if (loading) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center p-6 text-surface-a40">
-        <RefreshCw className="w-8 h-8 animate-spin text-info-a0 mb-3" />
-        <p className="text-sm font-mono">Initializing GateKeeper Authorization Boundary...</p>
-      </div>
-    );
+    return <CheckoutSkeleton />;
   }
 
   return (

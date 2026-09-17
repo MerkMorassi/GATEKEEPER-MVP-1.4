@@ -25,6 +25,7 @@ import { ProviderSettingsControl } from './ProviderSettingsControl';
 import { ProviderServicesControl } from './ProviderServicesControl';
 import { ProviderMarketingControl } from './ProviderMarketingControl';
 import { ProviderTransactionsControl } from './ProviderTransactionsControl';
+import { DashboardSkeleton } from './Skeleton';
 
 export type ProviderSubTab = 'profile' | 'settings' | 'services' | 'marketing' | 'transactions';
 
@@ -123,12 +124,7 @@ export const ProviderDashboard: React.FC = () => {
   };
 
   if (loading && !provider) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-16 text-center space-y-4">
-        <RefreshCw className="w-8 h-8 animate-spin text-info-a0 mx-auto" />
-        <h3 className="text-sm font-mono text-surface-a40">Authenticating & Loading Provider Control Surface...</h3>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (error && !provider) {

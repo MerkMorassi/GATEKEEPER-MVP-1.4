@@ -59,7 +59,7 @@ export const FlashPortal: React.FC<FlashPortalProps> = ({ currentRole, onNavigat
       <div className="text-center space-y-3 max-w-2xl">
         <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-info-a0/10 border border-info-a0/30 text-info-a0 text-xs font-mono mb-2">
           <Shield className="w-4 h-4 animate-pulse" />
-          <span className="font-semibold tracking-wider uppercase">GATEKEEPER SECURITY ENGINE • v1.1</span>
+          <span className="font-semibold tracking-wider uppercase">GATEKEEPER SECURITY ENGINE • v1.4</span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-theme-light">
           Access Control & Gate Routing

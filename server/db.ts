@@ -265,7 +265,9 @@ const DEFAULT_PROVIDER: ProviderConfig = {
         isMultiParticipant: true,
       }
     }
-  ]
+  ],
+  idleTimeoutMinutes: 15,
+  abnormalSessionThresholdMinutes: 45,
 };
 
 /**

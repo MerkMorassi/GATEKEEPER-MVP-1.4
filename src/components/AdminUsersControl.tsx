@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { UserRecord, UserRole } from '../types';
 import { apiFetch } from '../lib/api';
+import { TableSkeleton } from './Skeleton';
 
 export const AdminUsersControl: React.FC = () => {
   const [users, setUsers] = useState<UserRecord[]>([]);
@@ -279,12 +280,7 @@ export const AdminUsersControl: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-surface-a10/40 text-xs font-mono">
               {loading ? (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-surface-a40">
-                    <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-info-a0" />
-                    <span>Loading User Directory...</span>
-                  </td>
-                </tr>
+                <TableSkeleton rows={5} cols={7} />
               ) : users.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-surface-a40">

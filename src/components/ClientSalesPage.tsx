@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { ProviderConfig, ServiceDefinition, Order, Entitlement, Settlement } from '../types';
 import { ReceiptGenerator, ReceiptData } from './ReceiptGenerator';
+import { SalesPageSkeleton } from './Skeleton';
 
 interface MarketingGateItem {
   id: string;
@@ -383,6 +384,10 @@ export const ClientSalesPage: React.FC<ClientSalesPageProps> = ({ onNavigateToCh
       a: 'Your access ticket remains valid for your selected time slot. If you need assistance, your consultant can adjust session availability directly in their Provider Terminal.'
     }
   ];
+
+  if (loading) {
+    return <SalesPageSkeleton />;
+  }
 
   return (
     <div className="min-h-screen bg-primary-a10 text-theme-light">

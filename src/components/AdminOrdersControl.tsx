@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Order } from '../types';
 import { apiFetch } from '../lib/api';
+import { Skeleton, TableSkeleton } from './Skeleton';
 
 export const AdminOrdersControl: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -112,9 +113,21 @@ export const AdminOrdersControl: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="p-8 text-center text-surface-a40 font-mono flex flex-col items-center justify-center space-y-3">
-        <RefreshCw className="w-6 h-6 animate-spin text-info-a0" />
-        <span>Loading Operational Orders Ledger...</span>
+      <div className="bg-surface-a0 border border-surface-a10 rounded-2xl p-6 shadow-xl overflow-hidden">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-surface-a10/60 bg-tonal-a0/40">
+              <th className="py-4 px-4"><Skeleton className="h-4 w-20" /></th>
+              <th className="py-4 px-4"><Skeleton className="h-4 w-24" /></th>
+              <th className="py-4 px-4"><Skeleton className="h-4 w-32" /></th>
+              <th className="py-4 px-4"><Skeleton className="h-4 w-20" /></th>
+              <th className="py-4 px-4 text-right"><Skeleton className="h-4 w-16" /></th>
+            </tr>
+          </thead>
+          <tbody>
+            <TableSkeleton rows={8} cols={5} />
+          </tbody>
+        </table>
       </div>
     );
   }

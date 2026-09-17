@@ -49,7 +49,7 @@ export const AuthTerminal: React.FC<AuthTerminalProps> = ({ onAuthenticated }) =
             <Shield className="w-5 h-5" />
             <span className="font-bold tracking-widest text-sm uppercase">Secure Access</span>
           </div>
-          <span className="text-[10px] text-surface-a40 bg-surface-a0 px-2 py-0.5 rounded border border-surface-a10">v1.1</span>
+          <span className="text-[10px] text-surface-a40 bg-surface-a0 px-2 py-0.5 rounded border border-surface-a10">v1.4</span>
         </div>
 
         <form onSubmit={handleLogin} className="p-6 space-y-5">
