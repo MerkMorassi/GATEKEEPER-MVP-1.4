@@ -77,6 +77,21 @@ function getCookieOptions(req: Request) {
 }
 
 /**
+ * Resolves the authoritative application base URL.
+ * Priority: APP_URL env var > Request Host Header > Localhost Fallback.
+ */
+function getAppBaseUrl(req: Request): string {
+  const rawHost = req.headers.host || 'localhost:3000';
+  const safeHost = rawHost.replace(/[^a-zA-Z0-9.:-]/g, '');
+  const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production' ? 'https' : 'http';
+  let baseUrl = (process.env.APP_URL || `${protocol}://${safeHost}`).trim();
+  if (baseUrl.endsWith('/')) {
+    baseUrl = baseUrl.slice(0, -1);
+  }
+  return baseUrl;
+}
+
+/**
  * Validates either X-Admin-Key header (for legacy/tests) or a valid session cookie
  */
 function requireAdminAuth(req: Request, res: Response, next: () => void) {
@@ -591,9 +606,7 @@ apiRouter.post('/orders/create', async (req: Request, res: Response) => {
       const settlement = calculateSettlement(orderId, zeroBreakdown, order.currency || 'USD');
       db.saveSettlement(settlement);
 
-      const rawHost = req.headers.host || 'localhost:3000';
-      const safeHost = rawHost.replace(/[^a-zA-Z0-9.:-]/g, '');
-      const appUrl = (process.env.APP_URL || `http://${safeHost}`).trim();
+      const appUrl = getAppBaseUrl(req);
       const entitlement = await createEntitlement(
         orderId,
         provider.id,
@@ -717,9 +730,7 @@ apiRouter.post('/payments/verify', async (req: Request, res: Response) => {
           customExpiresAt = new Date(Date.now() + service.expirationDays * 24 * 60 * 60 * 1000);
         }
 
-        const rawHost = req.headers.host || 'localhost:3000';
-        const safeHost = rawHost.replace(/[^a-zA-Z0-9.:-]/g, '');
-        const appUrl = (process.env.APP_URL || `http://${safeHost}`).trim();
+        const appUrl = getAppBaseUrl(req);
         const entitlement = await createEntitlement(
           orderId,
           provider.id,
@@ -1271,7 +1282,7 @@ apiRouter.post('/admin/manual-review/resolve', requireAdminAuth, async (req: Req
             order.id,
             order.providerId,
             provider.facetimeHandle || 'support@gatekeeper.dev',
-            'http://localhost:3000'
+            getAppBaseUrl(req)
           );
           db.atomicCaptureAndIssueEntitlement(order, entitlement);
         }
@@ -1560,11 +1571,12 @@ apiRouter.post('/admin/stripe/test-checkout', requireAdminAuth, async (req: Requ
 
     db.saveOrder(order);
 
+    const appBaseUrl = getAppBaseUrl(req);
     const sessionResult = await createStripeCheckoutSession({
       order,
       provider,
-      successUrl: `http://localhost:3000/#access=test_token_${testOrderId}`,
-      cancelUrl: `http://localhost:3000/#cancel`,
+      successUrl: `${appBaseUrl}/#access=test_token_${testOrderId}`,
+      cancelUrl: `${appBaseUrl}/#cancel`,
     });
 
     db.updateStripeConfig({ lastSandboxTest: new Date().toISOString() });
@@ -2334,9 +2346,7 @@ apiRouter.post('/checkout/session', async (req: Request, res: Response) => {
 
     db.saveOrder(order);
 
-    const rawHost = req.headers.host || 'localhost:3000';
-    const safeHost = rawHost.replace(/[^a-zA-Z0-9.:-]/g, '');
-    const appUrl = (process.env.APP_URL || `http://${safeHost}`).trim();
+    const appUrl = getAppBaseUrl(req);
 
     const checkoutResult = await createStripeCheckoutSession({
       order,
@@ -2435,9 +2445,7 @@ apiRouter.post('/webhooks/stripe', async (req: Request, res: Response) => {
             return res.status(200).json({ success: true, message: `Cannot transition from ${currentOrder.financialState} to captured.` });
           }
 
-          const rawHost = req.headers.host || 'localhost:3000';
-          const safeHost = rawHost.replace(/[^a-zA-Z0-9.:-]/g, '');
-          const appUrl = (process.env.APP_URL || `http://${safeHost}`).trim();
+          const appUrl = getAppBaseUrl(req);
 
           const entitlement = await createEntitlement(
             currentOrder.id,
