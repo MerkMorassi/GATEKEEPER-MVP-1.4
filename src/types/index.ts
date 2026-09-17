@@ -10,6 +10,8 @@ export interface ServiceDefinition {
   description: string;
   feeCents: number;
   currency: string;
+  pricingModel?: 'FIXED' | 'HOURLY';
+  hourlyRateCents?: number;
   isTrial?: boolean;
   serviceType?: 'ONE_ON_ONE' | 'PPV_BROADCAST';
   defaultDurationMinutes?: number; // e.g. 15

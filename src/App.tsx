@@ -161,15 +161,26 @@ export default function App() {
 
   // Fetch initial Provider status for the badge in header
   useEffect(() => {
-    fetch('/api/config')
-      .then((res) => res.json())
+    apiFetch('/api/config')
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        const contentType = res.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await res.text();
+          console.error('Expected JSON but got:', text.substring(0, 100));
+          throw new Error('Response was not JSON');
+        }
+        return res.json();
+      })
       .then((data) => {
         if (data.success && data.provider) {
           setProviderActive(data.provider.active);
         }
       })
       .catch((err) => console.error('Error fetching config status:', err));
-  }, [currentTab]);
+  }, []);
 
   const handleLogout = async () => {
     diagnosticService.endSession('user_logout');

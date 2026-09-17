@@ -144,6 +144,10 @@ class SessionConfigManager {
   public async fetchServerPreference(): Promise<{ idleTimeoutMinutes: number; abnormalThresholdMinutes: number }> {
     try {
       const res = await apiFetch('/api/admin/session-thresholds');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) throw new Error('Not JSON');
+      
       const data = await res.json();
       if (data && data.success) {
         if (typeof data.idleTimeoutMinutes === 'number') {
@@ -158,6 +162,10 @@ class SessionConfigManager {
       // Fallback: try individual endpoint
       try {
         const res2 = await apiFetch('/api/admin/idle-timeout');
+        if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
+        const contentType2 = res2.headers.get('content-type');
+        if (!contentType2 || !contentType2.includes('application/json')) throw new Error('Not JSON');
+
         const data2 = await res2.json();
         if (data2 && data2.success) {
           if (typeof data2.idleTimeoutMinutes === 'number') {

@@ -536,7 +536,7 @@ export const ProviderProfileControl: React.FC<ProviderProfileControlProps> = ({
                 rows={3}
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
-                placeholder="Executive advisory, confidential 1-on-1 strategy sessions, and venture architecture. Direct, uncompromised access."
+                placeholder="Executive advisory, anonymous 1-on-1 strategy sessions, and venture architecture. Direct, uncompromised access."
                 className="w-full bg-tonal-a0 border border-surface-a10 rounded-xl p-3 text-xs font-mono text-theme-light focus:outline-none focus:border-info-a0 leading-relaxed"
               />
             </div>
@@ -800,7 +800,7 @@ export const ProviderProfileControl: React.FC<ProviderProfileControlProps> = ({
             {/* Bio text */}
             <div className="bg-tonal-a0/70 border border-surface-a10/80 rounded-2xl p-4">
               <p className="text-xs text-surface-a40 font-sans leading-relaxed">
-                {bio || 'Executive advisory, confidential 1-on-1 strategy sessions, and venture architecture. Direct, uncompromised access.'}
+                {bio || 'Executive advisory, anonymous 1-on-1 strategy sessions, and venture architecture. Direct, uncompromised access.'}
               </p>
             </div>
 

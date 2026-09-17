@@ -584,7 +584,7 @@ export const ProviderMarketingControl: React.FC<ProviderMarketingControlProps> =
               >
                 <option value="Free Consultation">Free Consultation</option>
                 <option value="Executive Advisory">Executive Advisory</option>
-                <option value="Confidential Strategy">Confidential Strategy</option>
+                <option value="Anonymous Strategy">Anonymous Strategy</option>
                 <option value="Early Access Special">Early Access Special</option>
                 <option value="Partner Referral">Partner Referral</option>
               </select>

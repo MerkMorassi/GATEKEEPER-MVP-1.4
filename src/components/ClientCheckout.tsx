@@ -173,6 +173,13 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
     error?: string;
   } | null>(null);
 
+  const calculateDisplayPrice = (svc: any, duration: number) => {
+    if (svc.pricingModel === 'HOURLY' && svc.hourlyRateCents) {
+      return (duration / 60) * svc.hourlyRateCents;
+    }
+    return svc.feeCents;
+  };
+
   // Detect Client Timezone and default appointment date
   useEffect(() => {
     try {
@@ -740,8 +747,12 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
                             </>
                           ) : (
                             <>
-                              <div className="text-xl font-extrabold text-theme-light">${(svc.feeCents / 100).toFixed(2)}</div>
-                              <div className="text-[10px] text-surface-a50 font-mono">USD • Instant Pass</div>
+                              <div className="text-xl font-extrabold text-theme-light">
+                                ${ (calculateDisplayPrice(svc, isSelected ? selectedDurationMinutes : (svc.defaultDurationMinutes || 15)) / 100).toFixed(2) }
+                              </div>
+                              <div className="text-[10px] text-surface-a50 font-mono">
+                                {svc.pricingModel === 'HOURLY' ? `$${(svc.hourlyRateCents / 100).toFixed(0)}/hr • ` : ''}USD • Instant Pass
+                              </div>
                             </>
                           )}
                         </div>
@@ -755,7 +766,7 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
                             <span className="font-mono text-surface-a40 font-bold">Consultation Duration:</span>
                             {svc.allowClientDurationAdjustment !== false ? (
                               <div className="flex items-center space-x-1.5" onClick={(e) => e.stopPropagation()}>
-                                {(svc.allowedDurations || [10, 15, 20, 30]).map((dur: number) => (
+                                {(svc.allowedDurations || [15, 30, 45, 60]).map((dur: number) => (
                                   <button
                                     type="button"
                                     key={dur}
@@ -902,7 +913,7 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
               <span>Legal Guardrails & Policy Compliance</span>
             </div>
             <p className="text-surface-a40 text-[11px] leading-relaxed">
-              By proceeding with this transaction, you explicitly agree to indemnify and hold harmless the service provider (<strong className="text-theme-light">Merk Morassi, LLC</strong>) from any and all liabilities. You certify that your utilization of this confidential gateway strictly complies with all governing laws, privileges, and terms of service established by Apple, Apple Pay, Video Call services, Stripe, and underlying media infrastructure.
+              By proceeding with this transaction, you explicitly agree to indemnify and hold harmless the service provider (<strong className="text-theme-light">Merk Morassi, LLC</strong>) from any and all liabilities. You certify that your utilization of this anonymous gateway strictly complies with all governing laws, privileges, and terms of service established by Apple, Apple Pay, Video Call services, Stripe, and underlying media infrastructure.
             </p>
             <label className="flex items-start space-x-2.5 cursor-pointer pt-1">
               <input

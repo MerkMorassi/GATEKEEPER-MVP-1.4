@@ -18,6 +18,12 @@ export function createGatekeeperApp() {
   }));
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
+  
+  // Logging middleware for debugging
+  app.use((req, res, next) => {
+    console.log(`[GateKeeper Server] ${req.method} ${req.url}`);
+    next();
+  });
 
   // Static public assets first (for embed widget /v1/gatekeeper.js, etc.)
   const publicPath = path.join(process.cwd(), 'public');
@@ -31,7 +37,9 @@ export function createGatekeeperApp() {
 
   // Fallback for environments where /api prefix may be rewritten or stripped
   app.use((req, res, next) => {
-    if (req.url.startsWith('/auth') || req.url.startsWith('/admin') || req.url.startsWith('/orders') || req.url.startsWith('/config')) {
+    const url = req.url;
+    if (url.startsWith('/auth') || url.startsWith('/admin') || url.startsWith('/orders') || url.startsWith('/config')) {
+      console.log(`[GateKeeper Server] Fallback routing engaged for: ${url}`);
       return apiRouter(req, res, next);
     }
     next();

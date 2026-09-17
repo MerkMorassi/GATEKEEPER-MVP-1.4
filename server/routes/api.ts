@@ -5,7 +5,7 @@ import { execSync } from 'child_process';
 import { Router, Request, Response } from 'express';
 import Stripe from 'stripe';
 import { db, lockManager } from '../db.js';
-import { calculateSettlement, calculateServiceAndTipBreakdown, calculateRefundBreakdown, MINIMUM_SERVICE_FEE_CENTS, FinancialBreakdown } from '../domain/money.js';
+import { calculateSettlement, calculateServiceAndTipBreakdown, calculateServiceFee, calculateRefundBreakdown, MINIMUM_SERVICE_FEE_CENTS, FinancialBreakdown } from '../domain/money.js';
 import { createEntitlement, generateOpaqueToken } from '../domain/access.js';
 import { generateSupportContext } from '../domain/support.js';
 import { payoutService } from '../services/payout/payoutService.js';
@@ -314,24 +314,31 @@ apiRouter.post('/auth/logout', (req: Request, res: Response) => {
 
 // 1. Get Public Configuration
 apiRouter.get('/config', (req: Request, res: Response) => {
-  const provider = db.getProvider();
-  res.json({
-    success: true,
-    provider: {
-      id: provider.id,
-      name: provider.name,
-      active: provider.active,
-      services: provider.services || [],
-      // For backwards compatibility with older tests, provide the first service details if available
-      serviceName: provider.services?.[0]?.name || 'Service',
-      serviceDescription: provider.services?.[0]?.description || '',
-      feeCents: provider.services?.[0]?.feeCents || 15000,
-      currency: provider.services?.[0]?.currency || 'USD',
-      payoutEmailConfigured: Boolean(provider.payoutEmail),
-      idleTimeoutMinutes: provider.idleTimeoutMinutes || 15,
-      abnormalSessionThresholdMinutes: provider.abnormalSessionThresholdMinutes || 45,
-    },
-  });
+  console.log(`[GateKeeper API] Serving /config to ${req.ip}`);
+  try {
+    const provider = db.getProvider();
+    const responseData = {
+      success: true,
+      provider: {
+        id: provider.id,
+        name: provider.name,
+        active: provider.active,
+        services: provider.services || [],
+        // For backwards compatibility with older tests, provide the first service details if available
+        serviceName: provider.services?.[0]?.name || 'Service',
+        serviceDescription: provider.services?.[0]?.description || '',
+        feeCents: provider.services?.[0]?.feeCents || 15000,
+        currency: provider.services?.[0]?.currency || 'USD',
+        payoutEmailConfigured: Boolean(provider.payoutEmail),
+        idleTimeoutMinutes: provider.idleTimeoutMinutes || 15,
+        abnormalSessionThresholdMinutes: provider.abnormalSessionThresholdMinutes || 45,
+      },
+    };
+    res.json(responseData);
+  } catch (err: any) {
+    console.error('[GateKeeper API] Error in /config:', err);
+    res.status(500).json({ success: false, error: 'Internal server error fetching configuration' });
+  }
 });
 
 // Download full source archive endpoints
@@ -387,7 +394,10 @@ apiRouter.get('/marketing/gates', (req: Request, res: Response) => {
 });
 
 apiRouter.get('/gates/:token', (req: Request, res: Response) => {
-  const gate = db.getGateByToken(req.params.token);
+  const { token } = req.params;
+  // Try finding by token first, then fallback to ID for compatibility
+  const gate = db.getGateByToken(token) || db.getGate(token);
+  
   if (!gate || !gate.active) {
     return res.status(404).json({ success: false, error: 'Gate not found or inactive.' });
   }
@@ -414,7 +424,7 @@ apiRouter.get('/gates/:token', (req: Request, res: Response) => {
 });
 
 // 1b. Gate Creation (Provider Only)
-apiRouter.post('/gates/create', requireProviderAuth, (req: Request, res: Response) => {
+apiRouter.post(['/gates/create', '/gates/generate'], requireProviderAuth, (req: Request, res: Response) => {
   const { name, targetServiceId, customGreeting, serviceDescription, expiryDate, promotionType } = req.body;
   const provider = db.getProvider();
 
@@ -437,7 +447,7 @@ apiRouter.post('/gates/create', requireProviderAuth, (req: Request, res: Respons
 });
 
 // 1c. Gate Update (Provider Only)
-apiRouter.post('/gates/:id/update', requireProviderAuth, (req: Request, res: Response) => {
+const handleUpdateGateRoute = (req: Request, res: Response) => {
   const { id } = req.params;
   const { name, active, targetServiceId, customGreeting, serviceDescription, expiryDate, promotionType } = req.body;
   const provider = db.getProvider();
@@ -461,7 +471,10 @@ apiRouter.post('/gates/:id/update', requireProviderAuth, (req: Request, res: Res
   db.saveGate(gate);
   db.logAuditEvent('GATE_UPDATED' as any, 'provider', { gateId: gate.id, name: gate.name, active: gate.active });
   res.json({ success: true, gate });
-});
+};
+
+apiRouter.post('/gates/:id/update', requireProviderAuth, handleUpdateGateRoute);
+apiRouter.put('/gates/:id', requireProviderAuth, handleUpdateGateRoute);
 
 // 1d. Gate Delete (Provider Only)
 const handleDeleteGateRoute = (req: Request, res: Response) => {
@@ -519,14 +532,14 @@ apiRouter.post('/orders/create', async (req: Request, res: Response) => {
       service = foundService;
     }
 
-    const isTrial = Boolean(service.isTrial || req.body.isTrial || service.feeCents === 0);
-    const orderId = `gk_ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const serviceCents = isTrial ? 0 : service.feeCents;
-    const providerServiceShareCents = Math.floor(serviceCents * 0.85);
-    const platformServiceShareCents = serviceCents - providerServiceShareCents;
-
     const requestedDuration = Number(req.body.durationMinutes || req.body.selectedDurationMinutes) || service.defaultDurationMinutes || 15;
     const requestedSlot = req.body.scheduledTimeSlot || req.body.selectedTimeSlot;
+
+    const isTrial = Boolean(service.isTrial || req.body.isTrial || service.feeCents === 0);
+    const orderId = `gk_ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const serviceCents = calculateServiceFee(service, requestedDuration);
+    const providerServiceShareCents = Math.floor(serviceCents * 0.85);
+    const platformServiceShareCents = serviceCents - providerServiceShareCents;
 
     // Calculate pass expiration date:
     // 1. service.expirationDate (if set as specific date)
@@ -3136,9 +3149,12 @@ apiRouter.post('/checkout/session', async (req: Request, res: Response) => {
       service = found;
     }
 
+    const requestedDuration = Number(req.body.durationMinutes || req.body.selectedDurationMinutes) || service.defaultDurationMinutes || 15;
+    const serviceCents = calculateServiceFee(service, requestedDuration);
+
     // Enforce integer math & $50 minimum service fee ($50.00 / 5000 cents)
     const tipCents = Math.max(0, Math.floor(Number(rawTipCents) || 0));
-    const breakdown = calculateServiceAndTipBreakdown(service.feeCents, tipCents);
+    const breakdown = calculateServiceAndTipBreakdown(serviceCents, tipCents);
 
     const orderId = `gk_ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const order: Order = {
@@ -3150,6 +3166,8 @@ apiRouter.post('/checkout/session', async (req: Request, res: Response) => {
       amountCents: breakdown.grossTotalCents,
       currency: service.currency,
       status: 'created',
+      durationMinutes: requestedDuration,
+      scheduledTimeSlot: req.body.scheduledTimeSlot || req.body.selectedTimeSlot,
 
       // 4-Dimensional State Vectors
       financialState: 'created',

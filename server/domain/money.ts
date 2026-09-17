@@ -14,6 +14,16 @@ export interface FinancialBreakdown {
   platformTotalShareCents: number;
 }
 
+export function calculateServiceFee(service: any, durationMinutes: number): number {
+  if (service.isTrial || service.feeCents === 0) return 0;
+  
+  if (service.pricingModel === 'HOURLY' && service.hourlyRateCents) {
+    return Math.floor((durationMinutes / 60) * service.hourlyRateCents);
+  }
+  
+  return service.feeCents;
+}
+
 /**
  * Calculates deterministic 85/15 service fee split and 100% tip allocation.
  * Enforces $50 minimum service fee ($50.00 USD / 5000 cents).

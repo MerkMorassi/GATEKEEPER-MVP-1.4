@@ -298,8 +298,8 @@ export const AccessScanner: React.FC = () => {
         const services: ServiceDefinition[] = provider.services || [
           {
             id: 'srv_1',
-            name: provider.serviceName || '30 Minutes 1-on-1 Confidential Consultation',
-            description: provider.serviceDescription || '30 Minutes Direct 1-on-1 Confidential Consultation',
+            name: provider.serviceName || '30 Minutes 1-on-1 Anonymous Consultation',
+            description: provider.serviceDescription || '30 Minutes Direct 1-on-1 Anonymous Consultation',
             feeCents: provider.feeCents || 15000,
             currency: provider.currency || 'USD'
           }

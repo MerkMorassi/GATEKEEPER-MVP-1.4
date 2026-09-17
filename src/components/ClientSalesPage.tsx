@@ -412,7 +412,7 @@ export const ClientSalesPage: React.FC<ClientSalesPageProps> = ({ onNavigateToCh
           </h1>
 
           <p className="text-base sm:text-lg text-surface-a40 max-w-3xl mx-auto leading-relaxed">
-            Reserve your confidential consultation with <strong className="text-theme-light">{providerConfig?.name || 'Merk Morassi'}</strong>. Scan or tap to purchase single-use ticket credentials with instant Video Call session handoff.
+            Reserve your anonymous consultation with <strong className="text-theme-light">{providerConfig?.name || 'Merk Morassi'}</strong>. Scan or tap to purchase single-use ticket credentials with instant Video Call session handoff.
           </p>
 
           {/* Call to Action Button */}
@@ -442,20 +442,20 @@ export const ClientSalesPage: React.FC<ClientSalesPageProps> = ({ onNavigateToCh
           {/* Quick Stats Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-10 border-t border-surface-a10/60 max-w-4xl mx-auto text-center font-mono">
             <div className="bg-tonal-a0/60 border border-surface-a10 p-4 rounded-2xl">
-              <span className="text-xl sm:text-2xl font-black text-info-a0 block">100%</span>
-              <span className="text-[10px] text-surface-a40 uppercase tracking-wider">Confidential 1-on-1</span>
+              <span className="text-xl sm:text-2xl font-black text-info-a0 block">ANONYMOUS</span>
+              <span className="text-[10px] text-surface-a40 uppercase tracking-wider">1-on-1 Connection</span>
             </div>
             <div className="bg-tonal-a0/60 border border-surface-a10 p-4 rounded-2xl">
-              <span className="text-xl sm:text-2xl font-black text-success-a0 block">Instant</span>
-              <span className="text-[10px] text-surface-a40 uppercase tracking-wider">QR Ticket Handoff</span>
+              <span className="text-xl sm:text-2xl font-black text-success-a0 block">PRIVATE</span>
+              <span className="text-[10px] text-surface-a40 uppercase tracking-wider">Video Session</span>
             </div>
             <div className="bg-tonal-a0/60 border border-surface-a10 p-4 rounded-2xl">
-              <span className="text-xl sm:text-2xl font-black text-amber-400 block">Encrypted</span>
+              <span className="text-xl sm:text-2xl font-black text-amber-400 block">SECURE</span>
               <span className="text-[10px] text-surface-a40 uppercase tracking-wider">Passcode Protection</span>
             </div>
             <div className="bg-tonal-a0/60 border border-surface-a10 p-4 rounded-2xl">
-              <span className="text-xl sm:text-2xl font-black text-info-a10 block">Video Call</span>
-              <span className="text-[10px] text-surface-a40 uppercase tracking-wider">Native Video Session</span>
+              <span className="text-xl sm:text-2xl font-black text-info-a10 block">INSTANT</span>
+              <span className="text-[10px] text-surface-a40 uppercase tracking-wider">QR Ticket Handoff</span>
             </div>
           </div>
         </div>
@@ -475,7 +475,7 @@ export const ClientSalesPage: React.FC<ClientSalesPageProps> = ({ onNavigateToCh
               How Your Video Call Consultation Works
             </h2>
             <p className="text-xs sm:text-sm text-surface-a40 max-w-2xl mx-auto font-mono">
-              Three simple steps to secure, confidential 1-on-1 advisor access without exposing private credentials.
+              Three simple steps to secure, anonymous 1-on-1 advisor access without exposing private credentials.
             </p>
           </div>
 
@@ -523,7 +523,7 @@ export const ClientSalesPage: React.FC<ClientSalesPageProps> = ({ onNavigateToCh
               <div className="space-y-1.5">
                 <h3 className="text-base font-bold text-theme-light">Double-Blind Video Call</h3>
                 <p className="text-xs text-surface-a40 leading-relaxed font-sans">
-                  Tap or scan your ticket to trigger direct Video Call connection. Your identity and session access remain 100% confidential.
+                  Tap or scan your ticket to trigger direct Video Call connection. Your identity and session access remain 100% anonymous.
                 </p>
               </div>
             </div>
@@ -593,7 +593,7 @@ export const ClientSalesPage: React.FC<ClientSalesPageProps> = ({ onNavigateToCh
                 )}
 
                 <p className="text-xs sm:text-sm text-surface-a40 leading-relaxed pt-1">
-                  {providerConfig.bio || 'Direct executive consultation, confidential 1-on-1 strategy sessions, and venture advisory.'}
+                  {providerConfig.bio || 'Direct executive consultation, anonymous 1-on-1 strategy sessions, and venture advisory.'}
                 </p>
 
                 {/* Social media links */}

@@ -360,7 +360,7 @@ export const ProviderTransactionsControl: React.FC<ProviderTransactionsControlPr
                       {/* Service & Details */}
                       <td className="py-3.5 px-4">
                         <div className="font-bold text-theme-light truncate max-w-xs">
-                          {ord.serviceName || ord.serviceId || 'Confidential Consultation'}
+                          {ord.serviceName || ord.serviceId || 'Anonymous Consultation'}
                         </div>
                         {ord.gateId && (
                           <span className="text-[10px] text-surface-a40 block">

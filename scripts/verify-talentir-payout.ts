@@ -65,7 +65,7 @@ async function runTalentirPayoutTestSuite() {
     id: testOrderId,
     providerId: 'prov_merk_001',
     serviceId: 'srv_1',
-    serviceName: 'Confidential Session',
+    serviceName: 'Anonymous Session',
     amountCents: 15000,
     currency: 'USD',
     status: 'paid',

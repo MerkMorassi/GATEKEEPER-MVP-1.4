@@ -114,7 +114,7 @@ export async function createStripeCheckoutSession(params: CreateCheckoutParams):
         currency: order.currency.toLowerCase(),
         product_data: {
           name: order.serviceName,
-          description: `Confidential Consultation Session with ${provider.name}`,
+          description: `Anonymous Consultation Session with ${provider.name}`,
         },
         unit_amount: order.serviceCents,
       },

@@ -119,7 +119,7 @@ export const ProviderServicesControl: React.FC<ProviderServicesControlProps> = (
         serviceType: 'ONE_ON_ONE',
         defaultDurationMinutes: 15,
         allowClientDurationAdjustment: true,
-        allowedDurations: [10, 15, 20, 30],
+        allowedDurations: [15, 30],
         expirationDays: 7,
         passType: 'single_use',
       };
@@ -149,7 +149,7 @@ export const ProviderServicesControl: React.FC<ProviderServicesControlProps> = (
     } else if (type === 'advisory_30') {
       newService = {
         id: `srv_adv_${Date.now()}`,
-        name: '30-Minute Confidential Advisory',
+        name: '30-Minute Anonymous Advisory',
         description: '30-Minute Focused Advisory & Problem-Solving Session with Direct Video Access.',
         feeCents: 15000,
         currency: 'USD',
@@ -157,7 +157,7 @@ export const ProviderServicesControl: React.FC<ProviderServicesControlProps> = (
         serviceType: 'ONE_ON_ONE',
         defaultDurationMinutes: 30,
         allowClientDurationAdjustment: true,
-        allowedDurations: [20, 30, 45],
+        allowedDurations: [15, 30, 45, 60],
         expirationDays: 14,
         passType: 'single_use',
       };
@@ -172,7 +172,7 @@ export const ProviderServicesControl: React.FC<ProviderServicesControlProps> = (
         serviceType: 'ONE_ON_ONE',
         defaultDurationMinutes: 45,
         allowClientDurationAdjustment: true,
-        allowedDurations: [30, 45, 60],
+        allowedDurations: [15, 30, 45, 60],
         expirationDays: 14,
         passType: 'single_use',
       };
@@ -359,7 +359,7 @@ export const ProviderServicesControl: React.FC<ProviderServicesControlProps> = (
               className="px-2.5 py-1 rounded-lg bg-tonal-a0 hover:bg-surface-a10 text-theme-light border border-surface-a10 text-[11px] font-bold transition-all flex items-center gap-1"
             >
               <Clock className="w-3 h-3 text-info-a0" />
-              <span>30m Confidential Advisory ($150)</span>
+              <span>30m Anonymous Advisory ($150)</span>
             </button>
             <button
               type="button"
@@ -476,14 +476,31 @@ export const ProviderServicesControl: React.FC<ProviderServicesControlProps> = (
                     type="text"
                     value={service.name}
                     onChange={(e) => handleServiceChange(index, 'name', e.target.value)}
-                    placeholder="e.g. 1-on-1 Confidential Consultation"
+                    placeholder="e.g. 1-on-1 Anonymous Consultation"
                     className="w-full bg-tonal-a0 border border-surface-a10 rounded-xl px-3.5 py-2.5 text-xs font-mono text-theme-light focus:outline-none focus:border-info-a0"
                   />
                 </div>
 
                 {/* Price in USD (3 cols) */}
                 <div className="md:col-span-3 space-y-1.5">
-                  <label className="text-xs font-mono text-surface-a40">Consultation Fee (USD)</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-mono text-surface-a40">
+                      {service.pricingModel === 'HOURLY' ? 'Hourly Rate (USD)' : 'Fixed Fee (USD)'}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newModel = service.pricingModel === 'HOURLY' ? 'FIXED' : 'HOURLY';
+                        handleServiceChange(index, 'pricingModel', newModel);
+                        if (newModel === 'HOURLY' && !service.hourlyRateCents) {
+                          handleServiceChange(index, 'hourlyRateCents', (service.feeCents || 10000) * 1);
+                        }
+                      }}
+                      className="text-[9px] font-mono font-bold uppercase text-info-a0 hover:text-info-a10 underline"
+                    >
+                      {service.pricingModel === 'HOURLY' ? 'Switch to Fixed' : 'Switch to Hourly'}
+                    </button>
+                  </div>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-a40 font-mono text-xs">$</span>
                     <input
@@ -491,8 +508,16 @@ export const ProviderServicesControl: React.FC<ProviderServicesControlProps> = (
                       step="1"
                       min="0"
                       disabled={Boolean(service.isTrial)}
-                      value={service.feeCents / 100}
-                      onChange={(e) => handleServiceChange(index, 'feeCents', Math.round(Number(e.target.value) * 100))}
+                      value={service.pricingModel === 'HOURLY' ? (service.hourlyRateCents || 0) / 100 : service.feeCents / 100}
+                      onChange={(e) => {
+                        const val = Math.round(Number(e.target.value) * 100);
+                        if (service.pricingModel === 'HOURLY') {
+                          handleServiceChange(index, 'hourlyRateCents', val);
+                          // For display in existing fields if needed, but hourly handles calculation
+                        } else {
+                          handleServiceChange(index, 'feeCents', val);
+                        }
+                      }}
                       placeholder="150"
                       className="w-full bg-tonal-a0 border border-surface-a10 rounded-xl pl-7 pr-3 py-2.5 text-xs font-mono text-theme-light focus:outline-none focus:border-info-a0 disabled:opacity-60"
                     />
@@ -501,10 +526,20 @@ export const ProviderServicesControl: React.FC<ProviderServicesControlProps> = (
 
                 {/* Real-Time Split Breakdown Badge (3 cols) */}
                 <div className="md:col-span-3 space-y-1.5">
-                  <label className="text-xs font-mono text-surface-a40">85% Provider Net Payout</label>
+                  <label className="text-xs font-mono text-surface-a40">
+                    {service.pricingModel === 'HOURLY' ? '85% Payout @ 60m' : '85% Provider Net Payout'}
+                  </label>
                   <div className="bg-tonal-a0 border border-surface-a10 rounded-xl px-3.5 py-2.5 flex items-center justify-between font-mono text-xs">
-                    <span className="text-success-a0 font-bold">${providerPayoutDollars}</span>
-                    <span className="text-[10px] text-surface-a40">(15%: ${platformFeeDollars})</span>
+                    <span className="text-success-a0 font-bold">
+                      ${service.pricingModel === 'HOURLY' 
+                        ? (((service.hourlyRateCents || 0) * 0.85) / 100).toFixed(2)
+                        : providerPayoutDollars}
+                    </span>
+                    <span className="text-[10px] text-surface-a40">
+                      (15%: ${service.pricingModel === 'HOURLY' 
+                        ? (((service.hourlyRateCents || 0) * 0.15) / 100).toFixed(2)
+                        : platformFeeDollars})
+                    </span>
                   </div>
                 </div>
 
@@ -563,7 +598,7 @@ export const ProviderServicesControl: React.FC<ProviderServicesControlProps> = (
 
                   {/* Duration Selector Pills */}
                   <div className="flex flex-wrap gap-1.5 pt-1">
-                    {[10, 15, 20, 30, 45, 60].map((dur) => {
+                    {[15, 30, 45, 60, 90, 120].map((dur) => {
                       const isDurSelected = (service.defaultDurationMinutes || (service.isTrial ? 15 : 30)) === dur;
                       return (
                         <button
@@ -677,7 +712,7 @@ export const ProviderServicesControl: React.FC<ProviderServicesControlProps> = (
                     rows={2}
                     value={service.description}
                     onChange={(e) => handleServiceChange(index, 'description', e.target.value)}
-                    placeholder="Describe what the client receives during this confidential 1-on-1 session..."
+                    placeholder="Describe what the client receives during this anonymous 1-on-1 session..."
                     className="w-full bg-tonal-a0 border border-surface-a10 rounded-xl p-3 text-xs font-mono text-theme-light focus:outline-none focus:border-info-a0 leading-relaxed"
                   />
                 </div>

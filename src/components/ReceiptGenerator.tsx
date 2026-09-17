@@ -498,7 +498,7 @@ GateKeeper Security Engine © 2026 Merk Morassi, LLC
           </div>
 
           <div className="text-center font-mono text-[10px] text-surface-a40 pt-2 border-t border-surface-a10">
-            GateKeeper © 2026 Merk Morassi, LLC • Confidentially Encrypted Video Call Advisory System
+            GateKeeper © 2026 Merk Morassi, LLC • Anonymously Encrypted Video Call Advisory System
           </div>
         </div>
 
