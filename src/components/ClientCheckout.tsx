@@ -44,13 +44,19 @@ interface ClientCheckoutProps {
   activeTokenFromHash?: string;
   activeGateFromHash?: string;
   activeServiceFromHash?: string;
+  checkoutOrderId?: string;
+  checkoutSessionId?: string;
+  checkoutStatus?: 'success' | 'cancel' | null;
 }
 
 export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
   onOrderCreated,
   activeTokenFromHash,
   activeGateFromHash,
-  activeServiceFromHash
+  activeServiceFromHash,
+  checkoutOrderId,
+  checkoutSessionId,
+  checkoutStatus,
 }) => {
   const [providerConfig, setProviderConfig] = useState<any | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
@@ -115,6 +121,45 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
       verifyTokenFromHash(activeTokenFromHash);
     }
   }, [activeTokenFromHash]);
+
+  // Handle Stripe Checkout return / orderId verification
+  useEffect(() => {
+    let targetOrderId = checkoutOrderId;
+    let targetSessionId = checkoutSessionId;
+    let isCancel = checkoutStatus === 'cancel';
+
+    if (!targetOrderId) {
+      const hash = window.location.hash;
+      const searchParams = new URLSearchParams(window.location.search);
+      const qOrder = searchParams.get('orderId') || searchParams.get('order_id');
+      const qSession = searchParams.get('session_id') || searchParams.get('sessionId');
+      const qCheckout = searchParams.get('checkout');
+
+      if (qCheckout === 'cancel' || hash.includes('checkout-cancel') || hash.startsWith('#cancel')) {
+        isCancel = true;
+      }
+      if (qOrder) targetOrderId = qOrder;
+      if (qSession) targetSessionId = qSession;
+
+      if (!targetOrderId && hash.includes('checkout-success')) {
+        const cleanHash = hash.replace(/^#/, '');
+        const orderMatch = cleanHash.match(/orderId=([^&]+)/) || cleanHash.match(/order_id=([^&]+)/);
+        const sessionMatch = cleanHash.match(/sessionId=([^&]+)/) || cleanHash.match(/session_id=([^&]+)/);
+        if (orderMatch) targetOrderId = orderMatch[1];
+        if (sessionMatch) targetSessionId = sessionMatch[1];
+      }
+    }
+
+    if (isCancel) {
+      setError('Stripe checkout was cancelled. No charge was made. You may select a service tier below to try again.');
+      setCheckoutStep('details');
+      return;
+    }
+
+    if (targetOrderId && checkoutStep !== 'success') {
+      verifyStripePaymentReturn(targetOrderId, targetSessionId);
+    }
+  }, [checkoutOrderId, checkoutSessionId, checkoutStatus]);
 
   // Embed Widget postMessage on successful checkout / pass issuance
   useEffect(() => {
@@ -226,6 +271,87 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
     }
   };
 
+  // Verify returned Stripe checkout payment
+  const verifyStripePaymentReturn = async (orderId: string, stripeSessionId?: string, retryCount = 0) => {
+    setCheckoutStep('verifying');
+    setError(null);
+
+    try {
+      // 1. First query order status
+      const statusRes = await fetch(`/api/checkout/status/${orderId}`);
+      const statusData = await statusRes.json();
+
+      if (statusData.success && statusData.entitlement && statusData.order) {
+        setCurrentOrder(statusData.order);
+        setSettlement(statusData.settlement);
+        setEntitlement(statusData.entitlement);
+        setHandoffStatus('HandoffPrepared');
+        setCheckoutStep('success');
+
+        if (statusData.order.scheduledTimeSlot) {
+          const parts = statusData.order.scheduledTimeSlot.split(' @ ');
+          if (parts.length === 2) {
+            setSelectedAppointmentDate(parts[0]);
+            setSelectedTimeSlot(parts[1]);
+          }
+        }
+        if (statusData.order.durationMinutes) {
+          setSelectedDurationMinutes(statusData.order.durationMinutes);
+        }
+        return;
+      }
+
+      // 2. Call payments/verify endpoint with orderId and sessionId
+      const verifyRes = await fetch('/api/payments/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId,
+          stripeSessionId: stripeSessionId || 'STRIPE_VERIFY',
+        }),
+      });
+
+      const verifyData = await verifyRes.json();
+
+      if (verifyData.success && verifyData.entitlement) {
+        setCurrentOrder(verifyData.order);
+        setSettlement(verifyData.settlement);
+        setEntitlement(verifyData.entitlement);
+        setHandoffStatus('HandoffPrepared');
+        setCheckoutStep('success');
+
+        if (verifyData.order?.scheduledTimeSlot) {
+          const parts = verifyData.order.scheduledTimeSlot.split(' @ ');
+          if (parts.length === 2) {
+            setSelectedAppointmentDate(parts[0]);
+            setSelectedTimeSlot(parts[1]);
+          }
+        }
+        if (verifyData.order?.durationMinutes) {
+          setSelectedDurationMinutes(verifyData.order.durationMinutes);
+        }
+      } else {
+        if (retryCount < 3) {
+          setTimeout(() => {
+            verifyStripePaymentReturn(orderId, stripeSessionId, retryCount + 1);
+          }, 1500);
+        } else {
+          setError(verifyData.error || 'Payment verification pending. If payment was authorized, please click "Retry Verification".');
+          setCheckoutStep('details');
+        }
+      }
+    } catch (err: any) {
+      if (retryCount < 2) {
+        setTimeout(() => {
+          verifyStripePaymentReturn(orderId, stripeSessionId, retryCount + 1);
+        }, 1500);
+      } else {
+        setError('Payment verification request failed: ' + err.message);
+        setCheckoutStep('details');
+      }
+    }
+  };
+
   // Initiate Order
   const handleStartCheckout = async () => {
     setError(null);
@@ -241,7 +367,9 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             gateToken: activeGateFromHash,
-            serviceId: selectedServiceId
+            serviceId: selectedServiceId,
+            durationMinutes: selectedDurationMinutes,
+            scheduledTimeSlot: `${selectedAppointmentDate} @ ${selectedTimeSlot}`,
           })
         });
         const data = await res.json();
@@ -296,13 +424,6 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
   };
 
   const executePaymentVerification = async (orderId: string, passToken: string = 'FREE_TRIAL_PASS') => {
-    // Only FREE_TRIAL_PASS zero-dollar orders are permitted to use local verification
-    if (passToken !== 'FREE_TRIAL_PASS') {
-      setError('Direct payment verification of paid orders is disabled. Paid transactions must be completed via Stripe Checkout.');
-      setCheckoutStep('details');
-      return;
-    }
-
     setCheckoutStep('verifying');
     setError(null);
 
@@ -312,7 +433,7 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId,
-          stripeSessionId: 'FREE_TRIAL_PASS',
+          stripeSessionId: passToken,
         }),
       });
 
@@ -329,7 +450,7 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
         setCheckoutStep('details');
       }
     } catch (err: any) {
-      setError('Server trial verification error: ' + err.message);
+      setError('Server verification error: ' + err.message);
       setCheckoutStep('details');
     }
   };
@@ -346,6 +467,8 @@ export const ClientCheckout: React.FC<ClientCheckoutProps> = ({
         body: JSON.stringify({
           gateToken: activeGateFromHash,
           serviceId: selectedServiceId,
+          durationMinutes: selectedDurationMinutes,
+          scheduledTimeSlot: `${selectedAppointmentDate} @ ${selectedTimeSlot}`,
         }),
       });
       const data = await res.json();

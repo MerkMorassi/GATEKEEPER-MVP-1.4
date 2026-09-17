@@ -33,6 +33,7 @@ export const AdminStripeControl: React.FC = () => {
   const [appUrlInput, setAppUrlInput] = useState('');
 
   // Secret replace mode toggles
+  const [replacingPublishableKey, setReplacingPublishableKey] = useState(false);
   const [replacingSecretKey, setReplacingSecretKey] = useState(false);
   const [replacingWebhookSecret, setReplacingWebhookSecret] = useState(false);
 
@@ -69,7 +70,7 @@ export const AdminStripeControl: React.FC = () => {
         const c = json.stripeConfig as StripeConfigResponse;
         setConfig(c);
         setEnvironment(c.environment);
-        setPublishableKey(c.publishableKey);
+        setPublishableKey(c.publishableKey || '');
         setAppUrlInput(c.appUrl || '');
       } else {
         setError(json.error || 'Failed to fetch Stripe configuration.');
@@ -90,22 +91,22 @@ export const AdminStripeControl: React.FC = () => {
       const payload: any = {
         environment,
         enableLiveConfirmed,
+        publishableKey: publishableKey.trim(),
+        appUrl: appUrlInput.trim(),
       };
 
-      if (publishableKey && !publishableKey.includes('••••')) {
-        payload.publishableKey = publishableKey.trim();
-      }
-      if (secretKey && (replacingSecretKey || !config?.secretKeyConfigured)) {
+      const willUpdateSecret = Boolean(secretKey && (replacingSecretKey || !config?.secretKeyConfigured));
+      const willUpdateWebhook = Boolean(webhookSecret && (replacingWebhookSecret || !config?.webhookSecretConfigured));
+      const willUpdatePk = Boolean(publishableKey.trim() && (replacingPublishableKey || publishableKey.trim() !== config?.publishableKey));
+
+      if (willUpdateSecret) {
         payload.secretKey = secretKey.trim();
       }
-      if (webhookSecret && (replacingWebhookSecret || !config?.webhookSecretConfigured)) {
+      if (willUpdateWebhook) {
         payload.webhookSecret = webhookSecret.trim();
       }
-      if (appUrlInput.trim()) {
-        payload.appUrl = appUrlInput.trim();
-      }
 
-      // Step 1: Send to server for format checking, live validation, and persistence
+      // Step 1: Send write request to server for cryptographic validation and database persistence
       const putRes = await apiFetch('/api/admin/stripe', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -114,32 +115,55 @@ export const AdminStripeControl: React.FC = () => {
 
       const putJson = await putRes.json();
       if (!putRes.ok || !putJson.success) {
-        setError(putJson.error || 'Failed to save Stripe configuration.');
+        setError(putJson.error || 'Failed to save Stripe configuration to database.');
         return;
       }
 
-      // Step 2: Immediate subsequent server readback to confirm persisted state
-      const getRes = await apiFetch('/api/admin/stripe');
-      const getJson = await getRes.json();
+      // Step 2: Dedicated secondary server-readback call directly querying the database
+      // to ensure keys have actually been written and confirmed in storage before updating UI
+      const readbackRes = await apiFetch('/api/admin/stripe');
+      const readbackJson = await readbackRes.json();
 
-      if (getJson.success && getJson.stripeConfig) {
-        const verifiedConfig = getJson.stripeConfig as StripeConfigResponse;
-        setConfig(verifiedConfig);
-        setReplacingSecretKey(false);
-        setReplacingWebhookSecret(false);
-        setSecretKey('');
-        setWebhookSecret('');
-        setShowLiveModal(false);
-        setLiveConfirmInput('');
-        setActionNotice(
-          verifiedConfig.persisted
-            ? 'Stripe configuration validated, persisted to database, and confirmed via server readback ✓'
-            : 'Stripe configuration validated and active in memory (ephemeral runtime) ✓'
-        );
-        setTimeout(() => setActionNotice(null), 5000);
-      } else {
-        setError('Configuration sent, but server readback verification failed.');
+      if (!readbackRes.ok || !readbackJson.success || !readbackJson.stripeConfig) {
+        setError('Configuration sent, but secondary server-readback confirmation from database failed.');
+        return;
       }
+
+      const verifiedConfig = readbackJson.stripeConfig as StripeConfigResponse;
+
+      // Validate that the keys and persistence were confirmed by the database
+      if (willUpdateSecret && !verifiedConfig.secretKeyConfigured) {
+        setError('Database confirmation failed: Secret key could not be verified in persistent storage.');
+        return;
+      }
+      if (willUpdateWebhook && !verifiedConfig.webhookSecretConfigured) {
+        setError('Database confirmation failed: Webhook secret could not be verified in persistent storage.');
+        return;
+      }
+      if (payload.publishableKey && verifiedConfig.publishableKey !== payload.publishableKey) {
+        setError('Database confirmation failed: Publishable key in database does not match saved key.');
+        return;
+      }
+
+      // Step 3: Refresh UI state ONLY after authoritative confirmation from database readback,
+      // preventing any optimistic green check marks
+      setConfig(verifiedConfig);
+      setPublishableKey(verifiedConfig.publishableKey || '');
+      setAppUrlInput(verifiedConfig.appUrl || '');
+      setEnvironment(verifiedConfig.environment || 'test');
+      setReplacingPublishableKey(false);
+      setReplacingSecretKey(false);
+      setReplacingWebhookSecret(false);
+      setSecretKey('');
+      setWebhookSecret('');
+      setShowLiveModal(false);
+      setLiveConfirmInput('');
+      setActionNotice(
+        verifiedConfig.persisted
+          ? 'Stripe configuration verified, written to database, and confirmed via secondary server-readback ✓'
+          : 'Stripe configuration verified in runtime and confirmed via secondary server-readback ✓'
+      );
+      setTimeout(() => setActionNotice(null), 5000);
     } catch (err: any) {
       setError('Error saving configuration: ' + err.message);
     } finally {
@@ -278,41 +302,63 @@ export const AdminStripeControl: React.FC = () => {
     }
   };
 
-  // Three-State Credential Evaluation
+  // Three-State Credential Evaluation (Non-Optimistic: Only confirmed database state triggers green check)
+  // Item 0: Stripe Publishable Key
+  const getPublishableKeyState = () => {
+    if (replacingPublishableKey && publishableKey.trim() !== (config?.publishableKey || '')) {
+      return { status: 'PENDING SAVE', color: 'text-warning-a0', icon: AlertCircle, badgeBg: 'bg-warning-a0/10 text-warning-a0 border-warning-a0/30' };
+    }
+    if (!config?.publishableKey) {
+      return { status: 'NOT CONFIGURED', color: 'text-surface-a40', icon: AlertCircle, badgeBg: 'bg-surface-a10/40 text-surface-a40 border-surface-a20' };
+    }
+    return { status: 'CONFIGURED & PERSISTED', color: 'text-success-a0', icon: CheckCircle2, badgeBg: 'bg-success-a0/10 text-success-a0 border-success-a0/30' };
+  };
+
   // Item 1: Stripe API Credentials
   const getApiCredentialsState = () => {
+    if (replacingSecretKey && secretKey.trim().length > 0) {
+      return { status: 'PENDING SAVE', color: 'text-warning-a0', icon: AlertCircle, badgeBg: 'bg-warning-a0/10 text-warning-a0 border-warning-a0/30' };
+    }
     if (!config?.secretKeyConfigured) {
       return { status: 'NOT CONFIGURED', color: 'text-surface-a40', icon: AlertCircle, badgeBg: 'bg-surface-a10/40 text-surface-a40 border-surface-a20' };
     }
     if (config.verifiedSecretKey) {
-      return { status: 'CONFIGURED / VERIFIED', color: 'text-success-a0', icon: CheckCircle2, badgeBg: 'bg-success-a0/10 text-success-a0 border-success-a0/30' };
+      return { status: 'CONFIGURED & PERSISTED', color: 'text-success-a0', icon: CheckCircle2, badgeBg: 'bg-success-a0/10 text-success-a0 border-success-a0/30' };
     }
     return { status: 'VERIFICATION ERROR', color: 'text-danger-a0', icon: XCircle, badgeBg: 'bg-danger-a0/10 text-danger-a0 border-danger-a0/30' };
   };
 
   // Item 2: Webhook Signing Secret
   const getWebhookSecretState = () => {
+    if (replacingWebhookSecret && webhookSecret.trim().length > 0) {
+      return { status: 'PENDING SAVE', color: 'text-warning-a0', icon: AlertCircle, badgeBg: 'bg-warning-a0/10 text-warning-a0 border-warning-a0/30' };
+    }
     if (!config?.webhookSecretConfigured) {
       return { status: 'NOT CONFIGURED', color: 'text-surface-a40', icon: AlertCircle, badgeBg: 'bg-surface-a10/40 text-surface-a40 border-surface-a20' };
     }
     if (config.verifiedWebhookSecret) {
-      return { status: 'CONFIGURED / VERIFIED', color: 'text-success-a0', icon: CheckCircle2, badgeBg: 'bg-success-a0/10 text-success-a0 border-success-a0/30' };
+      return { status: 'CONFIGURED & PERSISTED', color: 'text-success-a0', icon: CheckCircle2, badgeBg: 'bg-success-a0/10 text-success-a0 border-success-a0/30' };
     }
     return { status: 'VERIFICATION ERROR', color: 'text-danger-a0', icon: XCircle, badgeBg: 'bg-danger-a0/10 text-danger-a0 border-danger-a0/30' };
   };
 
   // Item 3: Application Base URL
   const getAppUrlState = () => {
+    if (appUrlInput.trim() !== (config?.appUrl || '')) {
+      return { status: 'PENDING SAVE', color: 'text-warning-a0', icon: AlertCircle, badgeBg: 'bg-warning-a0/10 text-warning-a0 border-warning-a0/30' };
+    }
     if (!config?.appUrl || (!config.appUrl.startsWith('http://') && !config.appUrl.startsWith('https://'))) {
       return { status: 'NOT CONFIGURED', color: 'text-surface-a40', icon: AlertCircle, badgeBg: 'bg-surface-a10/40 text-surface-a40 border-surface-a20' };
     }
-    return { status: 'CONFIGURED / VERIFIED', color: 'text-success-a0', icon: CheckCircle2, badgeBg: 'bg-success-a0/10 text-success-a0 border-success-a0/30' };
+    return { status: 'CONFIGURED & PERSISTED', color: 'text-success-a0', icon: CheckCircle2, badgeBg: 'bg-success-a0/10 text-success-a0 border-success-a0/30' };
   };
 
+  const publishableKeyState = getPublishableKeyState();
   const apiCredState = getApiCredentialsState();
   const whSecretState = getWebhookSecretState();
   const appUrlState = getAppUrlState();
 
+  const PublishableKeyIcon = publishableKeyState.icon;
   const ApiCredIcon = apiCredState.icon;
   const WhSecretIcon = whSecretState.icon;
   const AppUrlIcon = appUrlState.icon;
@@ -381,6 +427,43 @@ export const AdminStripeControl: React.FC = () => {
             <h3 className="text-base font-semibold text-theme-light">Stripe Integration Credentials</h3>
           </div>
 
+          {/* All API Keys Checkbox Status Bar */}
+          <div className="p-4 bg-tonal-a0 border border-surface-a10 rounded-xl space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono font-bold text-theme-light uppercase tracking-wider flex items-center space-x-2">
+                <Key className="w-4 h-4 text-info-a0" />
+                <span>All API Keys &amp; Webhook Credentials</span>
+              </span>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${
+                config?.publishableKey && config?.secretKeyConfigured && config?.webhookSecretConfigured
+                  ? 'bg-success-a0/10 text-success-a0 border border-success-a0/30'
+                  : 'bg-warning-a0/10 text-warning-a0 border border-warning-a0/30'
+              }`}>
+                {[config?.publishableKey, config?.secretKeyConfigured, config?.webhookSecretConfigured].filter(Boolean).length}/3 Configured &amp; Verified
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-[11px]">
+              <div className={`flex items-center space-x-2 p-2 rounded-lg border ${
+                config?.publishableKey ? 'bg-success-a0/10 border-success-a0/30 text-success-a0 font-semibold' : 'bg-surface-a10/40 border-surface-a20 text-surface-a40'
+              }`}>
+                <CheckCircle2 className={`w-4 h-4 flex-shrink-0 ${config?.publishableKey ? 'text-success-a0' : 'text-surface-a30'}`} />
+                <span className="truncate">Publishable Key: ••••••••••••</span>
+              </div>
+              <div className={`flex items-center space-x-2 p-2 rounded-lg border ${
+                config?.secretKeyConfigured ? 'bg-success-a0/10 border-success-a0/30 text-success-a0 font-semibold' : 'bg-surface-a10/40 border-surface-a20 text-surface-a40'
+              }`}>
+                <CheckCircle2 className={`w-4 h-4 flex-shrink-0 ${config?.secretKeyConfigured ? 'text-success-a0' : 'text-surface-a30'}`} />
+                <span className="truncate">Secret Key: ••••••••••••</span>
+              </div>
+              <div className={`flex items-center space-x-2 p-2 rounded-lg border ${
+                config?.webhookSecretConfigured ? 'bg-success-a0/10 border-success-a0/30 text-success-a0 font-semibold' : 'bg-surface-a10/40 border-surface-a20 text-surface-a40'
+              }`}>
+                <CheckCircle2 className={`w-4 h-4 flex-shrink-0 ${config?.webhookSecretConfigured ? 'text-success-a0' : 'text-surface-a30'}`} />
+                <span className="truncate">Webhook Secret: ••••••••••••</span>
+              </div>
+            </div>
+          </div>
+
           {/* Environment Mode Selection */}
           <div className="space-y-2">
             <label className="text-xs font-mono uppercase tracking-wider text-surface-a40">Stripe Environment Mode</label>
@@ -427,19 +510,46 @@ export const AdminStripeControl: React.FC = () => {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-mono uppercase text-surface-a40">Stripe Publishable Key</label>
-              {config?.publishableKey && (
-                <span className="text-[10px] font-mono text-surface-a40">
-                  {config.publishableKey.startsWith('pk_live_') ? 'Live Key' : 'Test Key'}
-                </span>
-              )}
+              <div className="flex items-center space-x-1.5 text-[11px] font-mono">
+                <PublishableKeyIcon className={`w-3.5 h-3.5 ${publishableKeyState.color}`} />
+                <span className={publishableKeyState.color}>{publishableKeyState.status}</span>
+              </div>
             </div>
-            <input
-              type="text"
-              value={publishableKey}
-              onChange={(e) => setPublishableKey(e.target.value)}
-              placeholder="pk_test_..."
-              className="w-full bg-tonal-a0 border border-surface-a10 text-theme-light text-xs font-mono px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-info-a0"
-            />
+            {config?.publishableKey && !replacingPublishableKey ? (
+              <div className="flex items-center justify-between bg-tonal-a0 border border-success-a0/30 px-3.5 py-2.5 rounded-xl text-xs font-mono">
+                <span className="text-success-a0 font-semibold flex items-center space-x-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-success-a0" />
+                  <span>Publishable Key: •••••••••••••••••••• Configured & Verified</span>
+                </span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setReplacingPublishableKey(true)}
+                    className="px-2.5 py-1 bg-surface-a10 hover:bg-surface-a20 text-theme-light rounded-lg text-[11px] transition-colors"
+                  >
+                    Replace Publishable Key
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPublishableKey('');
+                      setReplacingPublishableKey(true);
+                    }}
+                    className="px-2.5 py-1 bg-surface-a10 hover:bg-danger-a0/20 text-surface-a40 hover:text-danger-a0 rounded-lg text-[11px] transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <input
+                type="text"
+                value={publishableKey}
+                onChange={(e) => setPublishableKey(e.target.value)}
+                placeholder={environment === 'live' ? 'pk_live_...' : 'pk_test_...'}
+                className="w-full bg-tonal-a0 border border-surface-a10 text-theme-light text-xs font-mono px-3.5 py-2.5 rounded-xl focus:outline-none focus:border-info-a0 placeholder:text-surface-a30"
+              />
+            )}
           </div>
 
           {/* Secret Key */}
@@ -452,7 +562,7 @@ export const AdminStripeControl: React.FC = () => {
               </div>
             </div>
             {config?.secretKeyConfigured && !replacingSecretKey ? (
-              <div className="flex items-center justify-between bg-tonal-a0 border border-surface-a10 px-3.5 py-2.5 rounded-xl text-xs font-mono">
+              <div className="flex items-center justify-between bg-tonal-a0 border border-success-a0/30 px-3.5 py-2.5 rounded-xl text-xs font-mono">
                 <span className="text-success-a0 font-semibold flex items-center space-x-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 text-success-a0" />
                   <span>Secret Key: •••••••••••••••••••• Configured & Verified</span>
@@ -486,7 +596,7 @@ export const AdminStripeControl: React.FC = () => {
               </div>
             </div>
             {config?.webhookSecretConfigured && !replacingWebhookSecret ? (
-              <div className="flex items-center justify-between bg-tonal-a0 border border-surface-a10 px-3.5 py-2.5 rounded-xl text-xs font-mono">
+              <div className="flex items-center justify-between bg-tonal-a0 border border-success-a0/30 px-3.5 py-2.5 rounded-xl text-xs font-mono">
                 <span className="text-success-a0 font-semibold flex items-center space-x-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 text-success-a0" />
                   <span>Webhook Secret: •••••••••••••••••••• Configured & Verified</span>
@@ -588,9 +698,18 @@ export const AdminStripeControl: React.FC = () => {
               <span className="text-theme-light font-bold">{config?.accountId || 'acct_primary'}</span>
             </div>
 
+            {/* Item 0: Publishable Key */}
+            <div className="flex justify-between items-center py-2 border-b border-surface-a10/50">
+              <span className="text-surface-a40">Publishable Key</span>
+              <span className={`px-2 py-0.5 rounded border text-[11px] font-bold flex items-center space-x-1 ${publishableKeyState.badgeBg}`}>
+                <PublishableKeyIcon className="w-3 h-3" />
+                <span>{publishableKeyState.status}</span>
+              </span>
+            </div>
+
             {/* Item 1: API Credentials */}
             <div className="flex justify-between items-center py-2 border-b border-surface-a10/50">
-              <span className="text-surface-a40">API Credentials</span>
+              <span className="text-surface-a40">Secret Key</span>
               <span className={`px-2 py-0.5 rounded border text-[11px] font-bold flex items-center space-x-1 ${apiCredState.badgeBg}`}>
                 <ApiCredIcon className="w-3 h-3" />
                 <span>{apiCredState.status}</span>

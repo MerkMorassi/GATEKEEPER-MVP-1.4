@@ -16,6 +16,9 @@ export default function App() {
   const [activeTokenFromHash, setActiveTokenFromHash] = useState<string | undefined>();
   const [activeGateFromHash, setActiveGateFromHash] = useState<string | undefined>();
   const [activeServiceFromHash, setActiveServiceFromHash] = useState<string | undefined>();
+  const [checkoutOrderId, setCheckoutOrderId] = useState<string | undefined>();
+  const [checkoutSessionId, setCheckoutSessionId] = useState<string | undefined>();
+  const [checkoutStatus, setCheckoutStatus] = useState<'success' | 'cancel' | null>(null);
   const [role, setRole] = useState<'admin' | 'provider' | 'client' | 'guest' | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   
@@ -43,7 +46,7 @@ export default function App() {
           setRole(data.role);
         } else {
           const hash = window.location.hash;
-          if (hash.startsWith('#access=') || hash.startsWith('#gate=')) {
+          if (hash.startsWith('#access=') || hash.startsWith('#gate=') || hash.includes('checkout-success')) {
             setRole('guest');
           }
         }
@@ -52,15 +55,35 @@ export default function App() {
       .finally(() => setAuthLoading(false));
   }, []);
 
-  // Detect URL Hash access token or service payload on load
+  // Detect URL Hash or Query access token, checkout return, or service payload on load
   useEffect(() => {
     const handleHash = () => {
       const hash = window.location.hash;
+      const searchParams = new URLSearchParams(window.location.search);
+
+      // 1. Check Query Params for checkout redirect
+      const queryOrderId = searchParams.get('orderId') || searchParams.get('order_id');
+      const querySessionId = searchParams.get('session_id') || searchParams.get('sessionId');
+      const queryCheckout = searchParams.get('checkout');
+
+      if (queryCheckout === 'success' || (queryOrderId && !hash.startsWith('#access='))) {
+        setCheckoutOrderId(queryOrderId || undefined);
+        setCheckoutSessionId(querySessionId || undefined);
+        setCheckoutStatus(queryCheckout === 'cancel' ? 'cancel' : 'success');
+        setCurrentTab('client');
+        setRole(prev => (prev === 'admin' || prev === 'provider' || prev === 'client') ? prev : 'guest');
+        return;
+      }
+
+      // 2. Check Hash Fragment routing
       if (hash.startsWith('#access=')) {
         const token = hash.replace('#access=', '');
         setActiveTokenFromHash(token);
         setActiveGateFromHash(undefined);
         setActiveServiceFromHash(undefined);
+        setCheckoutOrderId(undefined);
+        setCheckoutSessionId(undefined);
+        setCheckoutStatus(null);
         setCurrentTab('client');
         setRole(prev => (prev === 'admin' || prev === 'provider' || prev === 'client') ? prev : 'guest');
       } else if (hash.startsWith('#gate=')) {
@@ -68,6 +91,9 @@ export default function App() {
         setActiveGateFromHash(token);
         setActiveTokenFromHash(undefined);
         setActiveServiceFromHash(undefined);
+        setCheckoutOrderId(undefined);
+        setCheckoutSessionId(undefined);
+        setCheckoutStatus(null);
         setCurrentTab('client');
         setRole(prev => (prev === 'admin' || prev === 'provider' || prev === 'client') ? prev : 'guest');
       } else if (hash.startsWith('#service=')) {
@@ -75,6 +101,31 @@ export default function App() {
         setActiveServiceFromHash(serviceId);
         setActiveGateFromHash(undefined);
         setActiveTokenFromHash(undefined);
+        setCheckoutOrderId(undefined);
+        setCheckoutSessionId(undefined);
+        setCheckoutStatus(null);
+        setCurrentTab('client');
+      } else if (hash.includes('checkout-success') || hash.includes('checkout_success')) {
+        const cleanHash = hash.replace(/^#/, '');
+        const orderIdMatch = cleanHash.match(/orderId=([^&]+)/) || cleanHash.match(/order_id=([^&]+)/);
+        const sessionIdMatch = cleanHash.match(/sessionId=([^&]+)/) || cleanHash.match(/session_id=([^&]+)/);
+
+        setCheckoutOrderId(orderIdMatch ? orderIdMatch[1] : undefined);
+        setCheckoutSessionId(sessionIdMatch ? sessionIdMatch[1] : undefined);
+        setCheckoutStatus('success');
+        setActiveGateFromHash(undefined);
+        setActiveTokenFromHash(undefined);
+        setActiveServiceFromHash(undefined);
+        setCurrentTab('client');
+        setRole(prev => (prev === 'admin' || prev === 'provider' || prev === 'client') ? prev : 'guest');
+      } else if (hash.includes('checkout-cancel') || hash.includes('checkout_cancel') || hash.startsWith('#cancel')) {
+        const cleanHash = hash.replace(/^#/, '');
+        const orderIdMatch = cleanHash.match(/orderId=([^&]+)/);
+        setCheckoutOrderId(orderIdMatch ? orderIdMatch[1] : undefined);
+        setCheckoutStatus('cancel');
+        setActiveGateFromHash(undefined);
+        setActiveTokenFromHash(undefined);
+        setActiveServiceFromHash(undefined);
         setCurrentTab('client');
       } else if (hash.startsWith('#sales') || hash.startsWith('#@') || hash.startsWith('#landing')) {
         setCurrentTab('sales');
@@ -122,6 +173,80 @@ export default function App() {
     setCurrentTab('portal');
   };
 
+  // 15-Minute Inactivity Idle Timer: Automatically logs out inactive authenticated users
+  useEffect(() => {
+    // Only monitor inactivity when an authenticated user session is active
+    if (!role || role === 'guest') return;
+
+    const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes in milliseconds
+    let lastActivity = Date.now();
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    let throttleTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const triggerAutoLogout = async () => {
+      console.warn('[Session Security] Inactive for more than 15 minutes. Automatically logging out.');
+      try {
+        await handleLogout();
+      } catch (err) {
+        console.error('Error during automatic idle logout:', err);
+      }
+    };
+
+    const scheduleTimer = () => {
+      if (timerId) clearTimeout(timerId);
+      const elapsed = Date.now() - lastActivity;
+      const remaining = Math.max(0, IDLE_TIMEOUT_MS - elapsed);
+      timerId = setTimeout(() => {
+        if (Date.now() - lastActivity >= IDLE_TIMEOUT_MS) {
+          triggerAutoLogout();
+        } else {
+          scheduleTimer();
+        }
+      }, remaining);
+    };
+
+    const onUserActivity = () => {
+      lastActivity = Date.now();
+      if (!throttleTimeout) {
+        throttleTimeout = setTimeout(() => {
+          throttleTimeout = null;
+        }, 1000); // 1-second throttle for activity event listeners
+        scheduleTimer();
+      }
+    };
+
+    const onVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        if (Date.now() - lastActivity >= IDLE_TIMEOUT_MS) {
+          triggerAutoLogout();
+        } else {
+          scheduleTimer();
+        }
+      }
+    };
+
+    const monitoredEvents = ['mousedown', 'mousemove', 'keydown', 'touchstart', 'scroll', 'wheel'];
+
+    monitoredEvents.forEach((eventType) => {
+      window.addEventListener(eventType, onUserActivity, { passive: true });
+    });
+    window.addEventListener('visibilitychange', onVisibilityOrFocus);
+    window.addEventListener('focus', onVisibilityOrFocus);
+
+    // Initialize timer
+    scheduleTimer();
+
+    return () => {
+      if (timerId) clearTimeout(timerId);
+      if (throttleTimeout) clearTimeout(throttleTimeout);
+      monitoredEvents.forEach((eventType) => {
+        window.removeEventListener(eventType, onUserActivity);
+      });
+      window.removeEventListener('visibilitychange', onVisibilityOrFocus);
+      window.removeEventListener('focus', onVisibilityOrFocus);
+    };
+  }, [role]);
+
   const handlePortalNavigate = (targetTab: 'client' | 'provider' | 'agent', targetRole?: 'admin' | 'provider' | 'client' | 'guest' | null) => {
     if (targetRole !== undefined) {
       setRole(targetRole);
@@ -167,6 +292,9 @@ export default function App() {
             activeTokenFromHash={activeTokenFromHash}
             activeGateFromHash={activeGateFromHash}
             activeServiceFromHash={activeServiceFromHash}
+            checkoutOrderId={checkoutOrderId}
+            checkoutSessionId={checkoutSessionId}
+            checkoutStatus={checkoutStatus}
           />
         )}
         

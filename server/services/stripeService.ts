@@ -1,11 +1,13 @@
 import Stripe from 'stripe';
 import { Order, ProviderConfig } from '../../src/types/index.js';
+import { db } from '../db.js';
 
 let stripeClient: Stripe | null = null;
 let cachedSecretKey: string | null = null;
 
-export function getStripeClient(): Stripe | null {
-  const secretKey = process.env.STRIPE_SECRET_KEY;
+export function getStripeClient(secretKeyOverride?: string): Stripe | null {
+  const dbConfig = typeof db !== 'undefined' && db?.getStripeConfig ? db.getStripeConfig() : null;
+  const secretKey = secretKeyOverride || dbConfig?.secretKey || process.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
     return null; // Handle missing secret key gracefully without crashing process
   }
@@ -17,7 +19,8 @@ export function getStripeClient(): Stripe | null {
 }
 
 export function isStripeConfigured(): boolean {
-  return Boolean(process.env.STRIPE_SECRET_KEY);
+  const dbConfig = typeof db !== 'undefined' && db?.getStripeConfig ? db.getStripeConfig() : null;
+  return Boolean(dbConfig?.secretKey || process.env.STRIPE_SECRET_KEY);
 }
 
 export interface CreateCheckoutParams {
@@ -25,6 +28,7 @@ export interface CreateCheckoutParams {
   provider: ProviderConfig;
   successUrl: string;
   cancelUrl: string;
+  secretKeyOverride?: string;
 }
 
 /**
@@ -33,16 +37,12 @@ export interface CreateCheckoutParams {
  * Destination = Provider's Connected Account (85% service + 100% tip).
  */
 export async function createStripeCheckoutSession(params: CreateCheckoutParams): Promise<{ sessionId: string; url: string | null; paymentIntentId?: string }> {
-  const stripe = getStripeClient();
-  const { order, provider, successUrl, cancelUrl } = params;
+  const { order, provider, successUrl, cancelUrl, secretKeyOverride } = params;
+  const stripe = getStripeClient(secretKeyOverride);
 
   if (!stripe) {
-    // In dev / unconfigured mode, return simulated Stripe Checkout reference
-    const mockSessionId = `cs_mock_${order.id}`;
-    return {
-      sessionId: mockSessionId,
-      url: `${successUrl}&session_id=${mockSessionId}&mock=true`,
-    };
+    console.warn('[STRIPE_CHECKOUT] No Stripe client initialized. Missing STRIPE_SECRET_KEY.');
+    throw new Error('Stripe API Key is not configured. Please configure your Stripe Secret Key in Admin Settings.');
   }
 
   const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
@@ -83,13 +83,22 @@ export async function createStripeCheckoutSession(params: CreateCheckoutParams):
       platformTotalShareCents: order.platformTotalShareCents.toString(),
       providerTotalShareCents: order.providerTotalShareCents.toString(),
     },
-    application_fee_amount: order.platformTotalShareCents,
   };
 
-  if (provider.stripeAccountId) {
+  // Only apply transfer_data and application_fee_amount when a valid Connected Account destination exists
+  const hasConnectedAccount = Boolean(
+    provider.stripeAccountId && 
+    typeof provider.stripeAccountId === 'string' && 
+    provider.stripeAccountId.trim().startsWith('acct_')
+  );
+
+  if (hasConnectedAccount) {
     paymentIntentData.transfer_data = {
-      destination: provider.stripeAccountId,
+      destination: provider.stripeAccountId!.trim(),
     };
+    if (order.platformTotalShareCents > 0) {
+      paymentIntentData.application_fee_amount = order.platformTotalShareCents;
+    }
   }
 
   try {
@@ -113,12 +122,23 @@ export async function createStripeCheckoutSession(params: CreateCheckoutParams):
       paymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id,
     };
   } catch (err: any) {
-    // In dev/sandbox test mode with invalid/offline keys, return sandbox test checkout reference
-    const mockSessionId = `cs_test_sandbox_${order.id}`;
-    return {
-      sessionId: mockSessionId,
-      url: `${successUrl}&session_id=${mockSessionId}&sandbox=true`,
+    // FORENSIC DIAGNOSTIC LOGGING: Do not mask or silently convert Stripe API errors!
+    const errorDetails = {
+      message: err.message,
+      type: err.type,
+      code: err.code,
+      param: err.param,
+      statusCode: err.statusCode || err.status,
+      requestId: err.requestId,
+      docUrl: err.doc_url,
     };
+    console.error('CRITICAL STRIPE CHECKOUT API ERROR:', JSON.stringify(errorDetails, null, 2));
+    
+    // Throw descriptive error with Stripe diagnostic details
+    const stripeErrorCode = err.code || err.type || 'StripeCheckoutError';
+    const diagnosticError = new Error(`Stripe API [${stripeErrorCode}]: ${err.message}`);
+    (diagnosticError as any).stripeDetails = errorDetails;
+    throw diagnosticError;
   }
 }
 
@@ -140,27 +160,35 @@ export async function executeStripeRefund(params: {
 
   // Full refund logic
   const isFullRefund = refundAmountCents === order.grossTotalCents;
+  const wasDestinationCharge = Boolean(order.stripeAccountId && order.stripeAccountId.startsWith('acct_'));
 
   let reverseTransfer = false;
   let refundApplicationFee = false;
 
-  if (isFullRefund) {
-    reverseTransfer = true;
-    refundApplicationFee = true;
-  } else if (isServiceRefund && !isTipRefund) {
-    reverseTransfer = true;
-    refundApplicationFee = true;
-  } else if (isTipRefund && !isServiceRefund) {
-    reverseTransfer = true;
-    refundApplicationFee = false;
+  if (wasDestinationCharge) {
+    if (isFullRefund) {
+      reverseTransfer = true;
+      refundApplicationFee = true;
+    } else if (isServiceRefund && !isTipRefund) {
+      reverseTransfer = true;
+      refundApplicationFee = true;
+    } else if (isTipRefund && !isServiceRefund) {
+      reverseTransfer = true;
+      refundApplicationFee = false;
+    }
   }
 
-  const refund = await stripe.refunds.create({
+  const refundParams: Stripe.RefundCreateParams = {
     payment_intent: order.stripePaymentIntentId,
     amount: refundAmountCents,
-    reverse_transfer: reverseTransfer,
-    refund_application_fee: refundApplicationFee,
-  });
+  };
+
+  if (wasDestinationCharge) {
+    refundParams.reverse_transfer = reverseTransfer;
+    refundParams.refund_application_fee = refundApplicationFee;
+  }
+
+  const refund = await stripe.refunds.create(refundParams);
 
   return {
     refundId: refund.id,

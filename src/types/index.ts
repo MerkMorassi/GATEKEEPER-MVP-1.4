@@ -279,6 +279,8 @@ export interface Order {
   paypalOrderId?: string;
   /** @deprecated Legacy database schema field name retained for compatibility. Does NOT represent an active PayPal integration. */
   paypalCaptureId?: string;
+  payerEmail?: string;
+  payerName?: string;
   durationMinutes?: number;
   scheduledTimeSlot?: string;
   isTrial?: boolean;

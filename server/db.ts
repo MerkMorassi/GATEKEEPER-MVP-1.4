@@ -340,6 +340,12 @@ class Database {
           ...(parsed.stripeConfig || {}),
         };
 
+        // Hydrate runtime environment from persistent storage
+        if (stripeConfig.secretKey) process.env.STRIPE_SECRET_KEY = stripeConfig.secretKey;
+        if (stripeConfig.webhookSecret) process.env.STRIPE_WEBHOOK_SECRET = stripeConfig.webhookSecret;
+        if (stripeConfig.publishableKey) process.env.VITE_STRIPE_PUBLISHABLE_KEY = stripeConfig.publishableKey;
+        if (stripeConfig.appUrl) process.env.APP_URL = stripeConfig.appUrl;
+
         const paymentCapabilities: PaymentCapabilitiesConfig = {
           ...DEFAULT_PAYMENT_CAPABILITIES,
           ...(parsed.paymentCapabilities || {}),
@@ -607,6 +613,20 @@ class Database {
       ...updates,
       updatedAt: new Date().toISOString(),
     };
+
+    if (this.data.stripeConfig.secretKey !== undefined) {
+      process.env.STRIPE_SECRET_KEY = this.data.stripeConfig.secretKey;
+    }
+    if (this.data.stripeConfig.webhookSecret !== undefined) {
+      process.env.STRIPE_WEBHOOK_SECRET = this.data.stripeConfig.webhookSecret;
+    }
+    if (this.data.stripeConfig.publishableKey !== undefined) {
+      process.env.VITE_STRIPE_PUBLISHABLE_KEY = this.data.stripeConfig.publishableKey;
+    }
+    if (this.data.stripeConfig.appUrl !== undefined) {
+      process.env.APP_URL = this.data.stripeConfig.appUrl;
+    }
+
     const persisted = this.saveData();
     return { config: this.getStripeConfig(), persisted };
   }

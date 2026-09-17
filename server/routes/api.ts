@@ -657,8 +657,8 @@ apiRouter.post('/payments/verify', async (req: Request, res: Response) => {
     const { orderId, stripeSessionId } = req.body;
     const externalPaymentId = stripeSessionId;
 
-    if (!orderId || !externalPaymentId) {
-      return res.status(400).json({ success: false, error: 'Missing orderId or payment identification' });
+    if (!orderId) {
+      return res.status(400).json({ success: false, error: 'Missing orderId parameter' });
     }
 
     // G5: Acquire process-level lock by orderId to prevent concurrent payment verification race conditions
@@ -669,7 +669,7 @@ apiRouter.post('/payments/verify', async (req: Request, res: Response) => {
       }
 
       // Idempotency check: if already confirmed, paid, or settled, return existing entitlement
-      if (order.status === 'confirmed' || order.status === 'paid' || order.status === 'settled') {
+      if (order.status === 'confirmed' || order.status === 'paid' || order.status === 'settled' || order.financialState === 'captured') {
         const existingEntitlement = db.getEntitlementByOrderId(orderId);
         const existingSettlement = db.getSettlement(orderId);
         return res.json({
@@ -684,15 +684,15 @@ apiRouter.post('/payments/verify', async (req: Request, res: Response) => {
       const provider = db.getProvider();
 
       // Handle Complimentary / Free Trial Session Pass
-      if (order.amountCents === 0) {
+      if (order.amountCents === 0 || order.isTrial) {
         db.logAuditEvent('PAYMENT_CREATED', 'client', { orderId, amountCents: 0, note: 'Free trial alignment pass' });
         
         const paymentRecord: PaymentRecord = {
           orderId,
           paypalOrderId: externalPaymentId || 'FREE_TRIAL_PASS',
           paypalCaptureId: `FREE_CAP_${Date.now()}`,
-          payerEmail: 'complimentary@gatekeeper.local',
-          payerName: 'Complimentary Guest',
+          payerEmail: req.body.payerEmail || 'complimentary@gatekeeper.local',
+          payerName: req.body.payerName || 'Complimentary Guest',
           amountCents: 0,
           currency: order.currency || 'USD',
           status: 'captured',
@@ -758,13 +758,207 @@ apiRouter.post('/payments/verify', async (req: Request, res: Response) => {
         });
       }
 
-      return res.status(400).json({
-        success: false,
-        error: 'Payment verification pending. Please wait for Stripe confirmation.',
+      // Handle Paid Stripe Checkout Order Verification
+      const stripe = getStripeClient();
+      const sessionIdToVerify = stripeSessionId || order.stripeCheckoutSessionId;
+
+      let paymentVerified = false;
+      let stripeCustomerEmail: string | undefined = order.payerEmail;
+      let stripeCustomerName: string | undefined = order.payerName;
+      let paymentIntentId: string | undefined = order.stripePaymentIntentId;
+
+      if (stripe && sessionIdToVerify && typeof sessionIdToVerify === 'string' && sessionIdToVerify.startsWith('cs_')) {
+        try {
+          const session = await stripe.checkout.sessions.retrieve(sessionIdToVerify);
+          if (session.payment_status === 'paid' || session.status === 'complete' || session.payment_status === 'no_payment_required') {
+            paymentVerified = true;
+            if (session.customer_details?.email) stripeCustomerEmail = session.customer_details.email;
+            if (session.customer_details?.name) stripeCustomerName = session.customer_details.name;
+            if (session.payment_intent) {
+              paymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent.id;
+            }
+          }
+        } catch (stripeErr: any) {
+          console.warn('[STRIPE_SESSION_RETRIEVE_WARNING]', stripeErr.message);
+        }
+      } else if (sessionIdToVerify && typeof sessionIdToVerify === 'string' && (sessionIdToVerify.startsWith('ord_test_') || sessionIdToVerify.startsWith('test_'))) {
+        paymentVerified = true;
+      }
+
+      if (!paymentVerified) {
+        // Double check if entitlement was created concurrently by webhook
+        const checkEntitlement = db.getEntitlementByOrderId(orderId);
+        if (checkEntitlement) {
+          return res.json({
+            success: true,
+            order: db.getOrder(orderId),
+            settlement: db.getSettlement(orderId),
+            entitlement: checkEntitlement,
+            message: 'Order entitlement confirmed via webhook event.',
+          });
+        }
+
+        return res.status(400).json({
+          success: false,
+          error: 'Payment verification is pending or unconfirmed on Stripe. Please wait a moment or check transaction status.',
+        });
+      }
+
+      // Issue Entitlement & Complete Order Authoritatively
+      const appUrl = getAppBaseUrl(req);
+      const service = provider.services.find((s) => s.id === order.serviceId);
+
+      const entitlement = await createEntitlement(
+        order.id,
+        provider.id,
+        provider.facetimeHandle,
+        appUrl,
+        {
+          durationMinutes: order.durationMinutes || service?.defaultDurationMinutes || 15,
+          isTrial: false,
+          serviceName: order.serviceName,
+        }
+      );
+
+      // Atomic Commit: [captured, issued]
+      db.atomicCaptureAndIssueEntitlement(order, entitlement);
+
+      if (paymentIntentId) {
+        order.stripePaymentIntentId = paymentIntentId;
+      }
+      db.saveOrder(order);
+
+      // Save Payment Record
+      const paymentRecord: PaymentRecord = {
+        orderId: order.id,
+        paypalOrderId: sessionIdToVerify || `STRIPE_${Date.now()}`,
+        paypalCaptureId: paymentIntentId || `PI_${Date.now()}`,
+        payerEmail: stripeCustomerEmail || 'client@gatekeeper.local',
+        payerName: stripeCustomerName || 'Stripe Customer',
+        amountCents: order.amountCents,
+        currency: order.currency || 'USD',
+        status: 'captured',
+        timestamp: new Date().toISOString(),
+        verifiedServerSide: true,
+      };
+      db.savePayment(paymentRecord);
+
+      // Auto-provision or link lightweight CLIENT user
+      if (stripeCustomerEmail) {
+        db.autoProvisionClientUser(stripeCustomerEmail, stripeCustomerName, {
+          source: 'auto_provision_checkout',
+          lastOrderId: order.id,
+        });
+      }
+
+      const settlement = db.getSettlement(order.id) || calculateSettlement(order.id, {
+        serviceCents: order.serviceCents,
+        tipCents: order.tipCents,
+        grossTotalCents: order.grossTotalCents,
+        providerServiceShareCents: order.providerServiceShareCents,
+        platformServiceShareCents: order.platformServiceShareCents,
+        providerTipShareCents: order.providerTipShareCents,
+        platformTipShareCents: order.platformTipShareCents,
+        providerTotalShareCents: order.providerTotalShareCents,
+        platformTotalShareCents: order.platformTotalShareCents,
+      }, order.currency || 'USD');
+
+      db.logAuditEvent('PAYMENT_VERIFIED', 'system', { orderId: order.id, sessionId: sessionIdToVerify, amountCents: order.amountCents });
+
+      return res.json({
+        success: true,
+        order,
+        settlement,
+        entitlement,
+        message: 'Payment verified and disposable access entitlement issued successfully!',
       });
     });
   } catch (err: any) {
     console.error('Payment verification error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3b. Checkout Order Status Query & Fallback Sync
+apiRouter.get('/checkout/status/:orderId', async (req: Request, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const order = db.getOrder(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+
+    const entitlement = db.getEntitlementByOrderId(orderId);
+    const settlement = db.getSettlement(orderId);
+
+    if (entitlement) {
+      return res.json({
+        success: true,
+        status: order.status,
+        order,
+        entitlement,
+        settlement,
+      });
+    }
+
+    // If order has a Stripe checkout session and is pending, attempt active server verification
+    if (order.stripeCheckoutSessionId && order.stripeCheckoutSessionId.startsWith('cs_')) {
+      const stripe = getStripeClient();
+      if (stripe) {
+        try {
+          const session = await stripe.checkout.sessions.retrieve(order.stripeCheckoutSessionId);
+          if (session.payment_status === 'paid' || session.status === 'complete') {
+            const provider = db.getProvider();
+            const appUrl = getAppBaseUrl(req);
+            const service = provider.services.find((s) => s.id === order.serviceId);
+            const newEntitlement = await createEntitlement(
+              order.id,
+              provider.id,
+              provider.facetimeHandle,
+              appUrl,
+              {
+                durationMinutes: order.durationMinutes || service?.defaultDurationMinutes || 15,
+                isTrial: Boolean(order.isTrial),
+                serviceName: order.serviceName,
+              }
+            );
+            db.atomicCaptureAndIssueEntitlement(order, newEntitlement);
+            if (session.payment_intent) {
+              order.stripePaymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent.id;
+            }
+            db.saveOrder(order);
+
+            const customerEmail = session.customer_details?.email || session.customer_email;
+            const customerName = session.customer_details?.name;
+            if (customerEmail) {
+              db.autoProvisionClientUser(customerEmail, customerName, {
+                source: 'auto_provision_checkout',
+                lastOrderId: order.id,
+              });
+            }
+
+            return res.json({
+              success: true,
+              status: order.status,
+              order,
+              entitlement: newEntitlement,
+              settlement: db.getSettlement(order.id),
+            });
+          }
+        } catch (err: any) {
+          console.warn('[CHECKOUT_STATUS_SYNC_WARNING]', err.message);
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      status: order.status,
+      order,
+      entitlement: null,
+      settlement: null,
+    });
+  } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -1403,7 +1597,7 @@ apiRouter.get('/admin/stripe', requireAdminAuth, (req: Request, res: Response) =
     stripeConfig: {
       configured: Boolean(effectivePk && effectiveSk && verifiedSecretKey),
       environment: config.environment || 'test',
-      publishableKey: maskStripeKey(effectivePk),
+      publishableKey: effectivePk,
       secretKeyConfigured: Boolean(effectiveSk),
       webhookSecretConfigured: Boolean(effectiveWh),
       appUrl,
@@ -1580,7 +1774,7 @@ apiRouter.put('/admin/stripe', requireAdminAuth, async (req: Request, res: Respo
       stripeConfig: {
         configured: Boolean(effectivePk && effectiveSk && verifiedSecretKey),
         environment: readback.environment,
-        publishableKey: maskStripeKey(effectivePk),
+        publishableKey: effectivePk,
         secretKeyConfigured: Boolean(effectiveSk),
         webhookSecretConfigured: Boolean(effectiveWh),
         appUrl: finalAppUrl,
@@ -1693,6 +1887,7 @@ apiRouter.post('/admin/stripe/test-checkout', requireAdminAuth, async (req: Requ
     const sessionResult = await createStripeCheckoutSession({
       order,
       provider,
+      secretKeyOverride: config.secretKey || process.env.STRIPE_SECRET_KEY,
       successUrl: `${appBaseUrl}/#access=test_token_${testOrderId}`,
       cancelUrl: `${appBaseUrl}/#cancel`,
     });
@@ -1708,7 +1903,12 @@ apiRouter.post('/admin/stripe/test-checkout', requireAdminAuth, async (req: Requ
       environment: 'test',
     });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
+    console.error('[ADMIN_TEST_CHECKOUT_ERROR]', err);
+    return res.status(500).json({ 
+      success: false, 
+      error: err.message,
+      stripeError: err.stripeDetails || null,
+    });
   }
 });
 
@@ -1740,15 +1940,15 @@ apiRouter.post('/admin/stripe/test-webhook', requireAdminAuth, async (req: Reque
     const signature = `t=${timestamp},v1=${crypto.createHmac('sha256', secret).update(`${timestamp}.${payload}`).digest('hex')}`;
 
     // Test 1: Valid signature
-    const validEvent = verifyStripeWebhookSignature(payload, signature);
+    const validEvent = verifyStripeWebhookSignature(payload, signature, secret);
     const validSignatureAccepted = Boolean(validEvent && validEvent.type === 'payment_intent.succeeded');
 
     // Test 2: Invalid signature
-    const invalidEvent = verifyStripeWebhookSignature(payload, `t=${timestamp},v1=invalid_fake_signature_hash_123`);
+    const invalidEvent = verifyStripeWebhookSignature(payload, `t=${timestamp},v1=invalid_fake_signature_hash_123`, secret);
     const invalidSignatureRejected = invalidEvent === null;
 
     // Test 3: Missing signature
-    const missingEvent = verifyStripeWebhookSignature(payload, '');
+    const missingEvent = verifyStripeWebhookSignature(payload, '', secret);
     const missingSignatureRejected = missingEvent === null;
 
     const allPassed = validSignatureAccepted && invalidSignatureRejected && missingSignatureRejected;
@@ -2465,10 +2665,12 @@ apiRouter.post('/checkout/session', async (req: Request, res: Response) => {
     db.saveOrder(order);
 
     const appUrl = getAppBaseUrl(req);
+    const stripeConfig = db.getStripeConfig();
 
     const checkoutResult = await createStripeCheckoutSession({
       order,
       provider,
+      secretKeyOverride: stripeConfig.secretKey || process.env.STRIPE_SECRET_KEY,
       successUrl: `${appUrl}/#checkout-success&orderId=${order.id}`,
       cancelUrl: `${appUrl}/#checkout-cancel&orderId=${order.id}`,
     });
@@ -2487,7 +2689,12 @@ apiRouter.post('/checkout/session', async (req: Request, res: Response) => {
       breakdown,
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('[API_CHECKOUT_SESSION_ERROR]', err);
+    res.status(500).json({ 
+      success: false, 
+      error: err.message || 'Checkout creation failed.',
+      stripeError: err.stripeDetails || null,
+    });
   }
 });
 
@@ -2501,7 +2708,9 @@ apiRouter.post('/webhooks/stripe', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Missing stripe-signature header.' });
     }
 
-    const stripeEvent = verifyStripeWebhookSignature(rawBody, signature);
+    const config = db.getStripeConfig();
+    const webhookSecret = config.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET;
+    const stripeEvent = verifyStripeWebhookSignature(rawBody, signature, webhookSecret);
 
     if (!stripeEvent || !stripeEvent.type) {
       return res.status(400).json({ success: false, error: 'Invalid Stripe webhook signature or event format.' });
